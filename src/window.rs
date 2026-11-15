@@ -265,6 +265,7 @@ fn open_tab(state: &Rc<RefCell<State>>) {
     }
 
     let shell = shell_path();
+    let shell_for_error = shell.clone();
     let home = std::env::var("HOME").ok();
     terminal.spawn_async(
         PtyFlags::DEFAULT,
@@ -277,7 +278,7 @@ fn open_tab(state: &Rc<RefCell<State>>) {
         None::<&gio::Cancellable>,
         move |result| {
             if let Err(err) = result {
-                eprintln!("Veyl: failed to start shell {shell}: {err}");
+                eprintln!("Veyl: failed to start shell {shell_for_error}: {err}");
             }
         },
     );
