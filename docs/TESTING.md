@@ -33,6 +33,8 @@ env -u BASH_ENV -u ENV CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
 
 Run the same command with `wayland_clipboard_actions` in an isolated Wayland session. That test replaces the session clipboard with synthetic text, exercises the application's copy and paste actions, and checks the ANSI foreground color in VTE's HTML export. Verify the physical shortcuts separately with the checklist below.
 
+Run the command with `wayland_appearance_settings` and a fresh `XDG_CONFIG_HOME` to test the Settings entry, font preview, Cancel, Save, Reset to defaults, and TOML comment preservation.
+
 ## Manual GNOME Wayland checklist
 
 Record Fedora version, VTE/GTK versions, GNOME version, Wayland/X11 session, resolution, display scaling, font availability, and whether Blur My Shell is enabled.

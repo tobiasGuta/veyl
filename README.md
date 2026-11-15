@@ -47,7 +47,9 @@ If Veyl cannot start the shell, the affected tab shows the error and can be clos
 
 ## Appearance and transparency
 
-The arrow beside **+** opens appearance settings. The default frosted background uses a **72%** dark tint over native compositor blur. The **Background opacity** slider changes the tint while keeping terminal text fully opaque.
+The arrow beside **+** opens quick controls for frosted background and opacity. The default frosted background uses a **72%** dark tint over native compositor blur. The **Background opacity** slider changes the tint while keeping terminal text fully opaque.
+
+Choose **Settings…** in the same menu to change the font, font size, text color, background tint, cursor shape, and horizontal and vertical terminal padding. The sample terminal previews changes as you edit. **Save** applies them to the current window and its open tabs. **Cancel** discards the draft. **Reset to defaults** restores the fields in the editor so you can preview the defaults before saving.
 
 Frosted mode uses GTK 4.24 and the Wayland `ext-background-effect-v1` protocol. Veyl uses a solid dark background when this path is unavailable. Turn **Frosted background** off to use plain translucency, or set opacity to **100%** for a solid background. See the [visual spec](docs/VISUAL_SPEC.md).
 
@@ -63,9 +65,12 @@ font_size = 12
 scrollback_lines = 10000
 background = "#10121a"
 foreground = "#e8eaf0"
+cursor_shape = "block"
+padding_x = 10
+padding_y = 8
 ~~~
 
-Create the file manually to override defaults. Changing an appearance control also creates the file. Blur and opacity update live, and the other TOML settings take effect at launch. Invalid configuration falls back to defaults with a message on stderr. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
+Create the file manually to override defaults. Saving an appearance change also creates the file. Veyl preserves comments and unrelated keys when saving. Manual edits take effect at launch. Invalid TOML falls back to defaults at launch and must be corrected before Veyl can save to that file. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
 
 ## For Codex contributors
 

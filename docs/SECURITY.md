@@ -22,7 +22,7 @@ Veyl is a user-level terminal emulator, **not a sandbox**. Commands executed in 
 
 ## Known v0.1 gaps to audit
 
-- Settings writes are atomic rename but permissions/symlinks and temporary-file collisions need hardening.
+- Settings saves use an exclusive owner-only temporary file and atomic rename. Veyl follows an existing config symlink to its destination. Independent review of settings paths and directory permissions remains open.
 - Clipboard pastes may contain control sequences, newlines, and secrets; future safety prompts should not break existing terminal behavior.
 - Translucent content can reveal desktop material behind the window; accessibility and shared-screen privacy need consideration.
 
