@@ -468,3 +468,112 @@ fn wayland_appearance_settings() {
     drop(terminal);
     window.close();
 }
+
+#[test]
+#[ignore = "requires a GNOME Wayland desktop and an isolated Bash HOME"]
+fn wayland_tab_interactions() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    for _ in 0..3 {
+        open_tab(&state);
+    }
+    window.present();
+    assert_eq!(state.borrow().active, Some(3));
+
+    for (action, expected) in [
+        ("next-tab", 1),
+        ("next-tab", 2),
+        ("previous-tab", 1),
+        ("previous-tab", 3),
+    ] {
+        activate(&window, action);
+        assert_eq!(state.borrow().active, Some(expected));
+    }
+    for (action, shortcut) in [
+        ("win.next-tab", "<Primary>Tab"),
+        ("win.previous-tab", "<Primary><Shift>Tab"),
+    ] {
+        let accelerators = app.accels_for_action(action);
+        assert_eq!(
+            gtk::accelerator_parse(&accelerators[0]),
+            gtk::accelerator_parse(shortcut)
+        );
+    }
+
+    let (menu, terminal, label) = {
+        let ui = state.borrow();
+        let tab = &ui.tabs[1];
+        (tab.menu.clone(), tab.terminal.clone(), tab.label.clone())
+    };
+    let process = shell_process(&terminal);
+    menu.popup();
+    wait_for("tab context menu to map", || menu.is_mapped().then_some(()));
+    menu.popdown();
+
+    for (name, expected) in [("  Build & test  ", "Build & test"), ("  ", "bash")] {
+        assert!(gtk::prelude::WidgetExt::activate_action(
+            &menu,
+            "win.rename-tab",
+            Some(&2u64.to_variant())
+        )
+        .is_ok());
+        let dialog = wait_for("rename dialog", || {
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .find_map(|widget| {
+                    widget.downcast::<gtk::Window>().ok().filter(|window| {
+                        window.is_visible() && window.title().as_deref() == Some("Rename tab")
+                    })
+                })
+        });
+        let entry = dialog
+            .child()
+            .unwrap()
+            .first_child()
+            .unwrap()
+            .downcast::<gtk::Entry>()
+            .unwrap();
+        entry.set_text(name);
+        let apply = dialog
+            .default_widget()
+            .unwrap()
+            .downcast::<Button>()
+            .unwrap();
+        apply.emit_clicked();
+        assert_eq!(label.text(), expected);
+        assert_eq!(state.borrow().active, Some(3));
+        assert!(process.exists());
+    }
+
+    tabs::set_color(&state, 2, Some(gdk::RGBA::WHITE));
+    let rules = state.borrow().appearance.to_string();
+    assert!(rules.contains(".veyl-tab-2"));
+    assert!(!rules.contains(".veyl-tab-1"));
+    assert!(gtk::prelude::WidgetExt::activate_action(
+        &menu,
+        "win.reset-tab-color",
+        Some(&2u64.to_variant())
+    )
+    .is_ok());
+    assert!(state.borrow().tabs[1].color.is_none());
+    assert!(!state
+        .borrow()
+        .appearance
+        .to_string()
+        .contains(".veyl-tab-2"));
+
+    drop(terminal);
+    menu.popup();
+    assert!(gtk::prelude::WidgetExt::activate_action(
+        &menu,
+        "win.close-tab-at",
+        Some(&2u64.to_variant())
+    )
+    .is_ok());
+    assert!(menu.parent().is_none());
+    assert_eq!(state.borrow().active, Some(3));
+    wait_for("closed context tab's shell to exit", || {
+        (!process.exists()).then_some(())
+    });
+    window.close();
+}

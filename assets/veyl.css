@@ -156,3 +156,11 @@ window.veyl-window.maximized .veyl-header {
   color: #d2d4dc;
   font-size: 12px;
 }
+
+.veyl-tab-menu > contents {
+  background: #22232b;
+  color: #f2f3f7;
+  border: 1px solid rgba(212, 216, 240, 0.20);
+  border-radius: 8px;
+  padding: 4px;
+}
