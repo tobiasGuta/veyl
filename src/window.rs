@@ -294,11 +294,15 @@ fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
         if tab.id == id {
             tab.chip.add_css_class("active");
             tab.select.add_css_class("active");
-            tab.terminal.grab_focus();
         } else {
             tab.chip.remove_css_class("active");
             tab.select.remove_css_class("active");
         }
+    }
+    let focused = ui.tabs.iter().find(|tab| tab.id == id).map(|tab| tab.terminal.clone());
+    drop(ui);
+    if let Some(terminal) = focused {
+        terminal.grab_focus();
     }
 }
 
@@ -352,7 +356,8 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
     {
         let state = state.clone();
         close.connect_activate(move |_, _| {
-            if let Some(id) = state.borrow().active {
+            let active_id = state.borrow().active;
+            if let Some(id) = active_id {
                 close_tab(&state, id);
             }
         });
