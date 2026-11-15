@@ -1,4 +1,4 @@
-use super::{appearance_color, apply_terminal_appearance};
+use super::{appearance_color, apply_terminal_appearance, themes};
 use crate::config::{Config, CursorShape};
 use gtk::accessible::Property;
 use gtk::prelude::*;
@@ -18,6 +18,9 @@ struct Form {
     foreground: gtk::ColorDialogButton,
     background: gtk::ColorDialogButton,
     cursor: gtk::DropDown,
+    scheme: gtk::DropDown,
+    scheme_names: Vec<String>,
+    progress: gtk::Switch,
     padding_x: gtk::SpinButton,
     padding_y: gtk::SpinButton,
     preview: vte4::Terminal,
@@ -42,6 +45,12 @@ impl Form {
                 .get(self.cursor.selected() as usize)
                 .copied()
                 .unwrap_or_default(),
+            tab_progress: self.progress.is_active(),
+            color_scheme: self
+                .scheme_names
+                .get(self.scheme.selected() as usize)
+                .cloned()
+                .unwrap_or_default(),
             padding_x: self.padding_x.value_as_int() as u16,
             padding_y: self.padding_y.value_as_int() as u16,
             ..self.original.clone()
@@ -63,6 +72,13 @@ impl Form {
                 .position(|shape| *shape == config.cursor_shape)
                 .unwrap_or_default() as u32,
         );
+        self.scheme.set_selected(
+            self.scheme_names
+                .iter()
+                .position(|name| *name == config.color_scheme)
+                .unwrap_or_default() as u32,
+        );
+        self.progress.set_active(config.tab_progress);
         self.padding_x.set_value(f64::from(config.padding_x));
         self.padding_y.set_value(f64::from(config.padding_y));
     }
@@ -107,7 +123,25 @@ pub(super) fn show(
     let color_dialog = gtk::ColorDialog::builder().with_alpha(false).build();
     let font = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
     font.set_level(gtk::FontLevel::Family);
+    let mut scheme_names = themes::names(original);
+    if !scheme_names.contains(&original.color_scheme) {
+        scheme_names.push(original.color_scheme.clone());
+    }
+    let labels = scheme_names
+        .iter()
+        .map(|name| {
+            if name.is_empty() {
+                "Default"
+            } else {
+                name.as_str()
+            }
+        })
+        .collect::<Vec<_>>();
+    let scheme = gtk::DropDown::from_strings(&labels);
     let form = Rc::new(Form {
+        scheme,
+        scheme_names,
+        progress: gtk::Switch::new(),
         font,
         size: gtk::SpinButton::with_range(7.0, 32.0, 1.0),
         foreground: gtk::ColorDialogButton::new(Some(color_dialog.clone())),
@@ -132,12 +166,14 @@ pub(super) fn show(
     body.set_margin_bottom(16);
     body.set_margin_start(18);
     body.set_margin_end(18);
-    let rows: [(&str, &gtk::Widget, &str); 7] = [
+    let rows: [(&str, &gtk::Widget, &str); 9] = [
         ("Font family", form.font.upcast_ref(), "font-desc"),
         ("Font size (pt)", form.size.upcast_ref(), "value"),
         ("Text color", form.foreground.upcast_ref(), "rgba"),
         ("Background tint", form.background.upcast_ref(), "rgba"),
         ("Cursor shape", form.cursor.upcast_ref(), "selected"),
+        ("Color scheme", form.scheme.upcast_ref(), "selected"),
+        ("Show tab progress", form.progress.upcast_ref(), "active"),
         (
             "Horizontal padding (px)",
             form.padding_x.upcast_ref(),

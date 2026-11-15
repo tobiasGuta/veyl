@@ -26,13 +26,13 @@ The terminal engine is upstream VTE4, **not a new ANSI/VT parser**. GTK4 renders
 
 ## State and lifecycle
 
-The window owns its shared state. The state holds a weak reference back to the window. Actions and tab callbacks also use weak references. Each tab has a unique ID, a GTK surface, a VTE terminal, and a cancellable for the shell launch. Switching tabs changes the visible Stack child.
+The window owns its shared state. The state holds a weak reference back to the window. Actions and callbacks also use weak references. A tab owns a GTK surface containing one pane or a tree of `GtkPaned` splits. Each pane has its own VTE terminal, search controls, and launch cancellable. Switching tabs changes the visible Stack child and restores focus to that tab's active pane.
 
-Closing a tab removes it from the state before cancelling the launch and unparenting its widgets. Window teardown drains all tabs through the same path. GTK and VTE operations that can emit signals run after the state borrow ends, so a late child-exit signal sees the removed tab ID and returns. VTE disposes the terminal, signals the child, and releases the PTY. A short-lived application hold lets an in-flight launch finish or cancel when the last window closes.
+Closing a tab removes it from the state before cancelling its panes' launches and unparenting its widgets. Closing an individual pane removes its model entry and promotes its sibling in the split tree. Closing or exiting the final pane closes its tab. Window teardown drains all tabs through the same path. GTK and VTE operations that can emit signals run after the state borrow ends, so a late child-exit signal sees the removed ID and returns. VTE disposes the terminal, signals the child, and releases the PTY. A short-lived application hold lets an in-flight launch finish or cancel when the last window closes.
 
 When spawning fails in an open tab, Veyl displays the error in that tab and disables input. Closing the failed tab uses the ordinary close action.
 
-VTE spawns the user's `$SHELL` as an executable path, **not** via `sh -c`. It inherits the process environment and starts in `$HOME`; input typed into the terminal executes with the user's normal permissions. Do not setuid, wrap in `sudo`, or automatically elevate.
+VTE launches a profile executable or falls back to the user's `$SHELL`. A profile can select a starting folder, tab name, and ANSI scheme. Duplicate and split actions start a separate PTY with the same launch settings and a validated local starting folder. Input typed into the terminal executes with the user's normal permissions.
 
 ## Configuration
 
@@ -46,6 +46,4 @@ Veyl checks for the protocol manager when it creates the window. Mutter 51.1 adv
 
 ## Future abstraction boundaries
 
-- Extract TerminalSession from UI model before split panes.
-- Add shell/profile model only after lifecycle coverage.
 - Unit test non-GUI configuration; use desktop integration testing for PTY/GTK behavior.

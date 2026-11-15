@@ -1,5 +1,9 @@
+mod panes;
+mod search;
 mod settings;
+mod shortcuts;
 mod tabs;
+mod themes;
 
 use crate::config::{Config, CursorShape};
 use gdk4_wayland::WaylandDisplay;
@@ -17,11 +21,12 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use vte4::prelude::*;
-use vte4::{PtyFlags, Terminal};
+use vte4::Terminal;
 
 struct Tab {
     id: u64,
-    terminal: Terminal,
+    panes: Vec<panes::Pane>,
+    active_pane: u64,
     surface: GtkBox,
     chip: GtkBox,
     select: Button,
@@ -30,7 +35,17 @@ struct Tab {
     default_title: String,
     color: Option<gdk::RGBA>,
     menu: gtk::PopoverMenu,
-    spawn: gio::Cancellable,
+    progress: gtk::ProgressBar,
+    progress_timer: Option<glib::SourceId>,
+}
+
+impl Tab {
+    fn active_pane(&self) -> &panes::Pane {
+        self.panes
+            .iter()
+            .find(|pane| pane.id == self.active_pane)
+            .expect("a tab owns its active pane")
+    }
 }
 
 struct State {
@@ -40,6 +55,7 @@ struct State {
     stack: Stack,
     tabs: Vec<Tab>,
     next_id: u64,
+    next_pane: u64,
     active: Option<u64>,
     closing: bool,
     config: Config,
@@ -137,6 +153,7 @@ fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<Re
         stack,
         tabs: Vec::new(),
         next_id: 0,
+        next_pane: 0,
         active: None,
         closing: false,
         config,
@@ -194,7 +211,24 @@ fn appearance_color(value: &str, fallback: &str) -> gdk::RGBA {
 }
 
 fn apply_terminal_appearance(terminal: &Terminal, config: &Config) {
-    terminal.set_color_foreground(&appearance_color(&config.foreground, "#e8eaf0"));
+    let foreground = appearance_color(&config.foreground, "#e8eaf0");
+    let scheme = themes::resolve(config, &config.color_scheme);
+    let palette = scheme
+        .as_ref()
+        .and_then(themes::palette)
+        .unwrap_or_default();
+    let palette = palette.iter().collect::<Vec<_>>();
+    terminal.set_colors(Some(&foreground), None, &palette);
+    let cursor = scheme
+        .as_ref()
+        .and_then(|scheme| scheme.cursor.as_deref())
+        .and_then(|color| gdk::RGBA::parse(color).ok());
+    let selection = scheme
+        .as_ref()
+        .and_then(|scheme| scheme.selection.as_deref())
+        .and_then(|color| gdk::RGBA::parse(color).ok());
+    terminal.set_color_cursor(cursor.as_ref());
+    terminal.set_color_highlight(selection.as_ref());
     terminal.set_cursor_shape(match config.cursor_shape {
         CursorShape::Block => vte4::CursorShape::Block,
         CursorShape::Beam => vte4::CursorShape::Ibeam,
@@ -231,12 +265,22 @@ fn open_settings(state: &Rc<RefCell<State>>) {
                 ui.config = draft.clone();
                 ui.tabs
                     .iter()
-                    .map(|tab| tab.terminal.clone())
+                    .flat_map(|tab| &tab.panes)
+                    .map(|pane| (pane.terminal.clone(), pane.appearance(&draft)))
                     .collect::<Vec<_>>()
             };
             update_appearance(&state);
-            for terminal in terminals {
-                apply_terminal_appearance(&terminal, &draft);
+            for (terminal, settings) in terminals {
+                apply_terminal_appearance(&terminal, &settings);
+            }
+            let tabs = state
+                .borrow()
+                .tabs
+                .iter()
+                .map(|tab| tab.id)
+                .collect::<Vec<_>>();
+            for id in tabs {
+                panes::refresh_progress(&state, id);
             }
             Ok(())
         }
@@ -248,6 +292,28 @@ fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
     popover.add_css_class("veyl-appearance");
     popover.set_has_arrow(false);
     let body = GtkBox::new(Orientation::Vertical, 12);
+
+    let profiles = state
+        .borrow()
+        .config
+        .profiles
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    if !profiles.is_empty() {
+        for profile in profiles {
+            let button = Button::with_label(&profile);
+            button.set_action_name(Some("win.open-profile"));
+            button.set_action_target_value(Some(&profile.to_variant()));
+            button.connect_clicked(glib::clone!(
+                #[weak]
+                popover,
+                move |_| popover.popdown()
+            ));
+            body.append(&button);
+        }
+        body.append(&gtk::Separator::new(Orientation::Horizontal));
+    }
 
     let blur_row = GtkBox::new(Orientation::Horizontal, 16);
     let blur_label = Label::new(Some("Frosted background"));
@@ -312,6 +378,20 @@ fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
 
     body.append(&opacity_label);
     body.append(&slider);
+    body.append(&gtk::Separator::new(Orientation::Horizontal));
+    for (label, action) in [
+        ("Split right", "win.split-right"),
+        ("Split down", "win.split-down"),
+    ] {
+        let button = Button::with_label(label);
+        button.set_action_name(Some(action));
+        button.connect_clicked(glib::clone!(
+            #[weak]
+            popover,
+            move |_| popover.popdown()
+        ));
+        body.append(&button);
+    }
     let settings = Button::with_label("Settings…");
     settings.connect_clicked(glib::clone!(
         #[weak]
@@ -323,9 +403,60 @@ fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
             open_settings(&state);
         }
     ));
+    let shortcuts_button = Button::with_label("Keyboard shortcuts…");
+    shortcuts_button.connect_clicked(glib::clone!(
+        #[weak]
+        state,
+        #[weak]
+        popover,
+        move |_| {
+            popover.popdown();
+            open_shortcuts(&state);
+        }
+    ));
+    body.append(&shortcuts_button);
+    let find = Button::with_label("Find in terminal");
+    find.set_action_name(Some("win.find"));
+    find.connect_clicked(glib::clone!(
+        #[weak]
+        popover,
+        move |_| popover.popdown()
+    ));
+    body.append(&find);
     body.append(&settings);
-    popover.set_child(Some(&body));
+    let scrolled = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::Never)
+        .vscrollbar_policy(PolicyType::Automatic)
+        .max_content_height(470)
+        .propagate_natural_height(true)
+        .child(&body)
+        .build();
+    popover.set_child(Some(&scrolled));
     menu.set_popover(Some(&popover));
+}
+
+fn open_shortcuts(state: &Rc<RefCell<State>>) {
+    let (window, config) = {
+        let ui = state.borrow();
+        (ui.window.upgrade(), ui.config.clone())
+    };
+    let Some(window) = window else { return };
+    let Some(app) = window.application() else {
+        return;
+    };
+    let weak_state = Rc::downgrade(state);
+    shortcuts::show(&window, &config, move |shortcuts| {
+        let Some(state) = weak_state.upgrade() else {
+            return Ok(());
+        };
+        let original = state.borrow().config.clone();
+        let mut edited = original.clone();
+        edited.shortcuts = shortcuts;
+        edited.save_changes(&original)?;
+        shortcuts::apply(&app, &edited);
+        state.borrow_mut().config = edited;
+        Ok(())
+    });
 }
 
 fn save_appearance(state: &Rc<RefCell<State>>, previous: &Config) {
@@ -344,12 +475,27 @@ fn shell_path() -> String {
 }
 
 fn open_tab(state: &Rc<RefCell<State>>) {
-    let home = std::env::var("HOME").ok();
-    open_tab_with_shell(state, &shell_path(), home.as_deref());
+    let launch = {
+        let ui = state.borrow();
+        panes::Launch::for_profile(&ui.config, &ui.config.default_profile)
+    };
+    open_tab_with_launch(state, launch);
 }
 
+#[cfg(test)]
 fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&str>) {
-    let (id, settings, window, tabs_bar, stack) = {
+    open_tab_with_launch(
+        state,
+        panes::Launch {
+            shell: shell.into(),
+            directory: home.map(str::to_owned),
+            profile: None,
+        },
+    );
+}
+
+fn open_tab_with_launch(state: &Rc<RefCell<State>>, launch: panes::Launch) {
+    let (id, title, tabs_bar, stack) = {
         let mut ui = state.borrow_mut();
         if ui.closing {
             return;
@@ -357,32 +503,22 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
         ui.next_id += 1;
         (
             ui.next_id,
-            ui.config.clone(),
-            ui.window.clone(),
+            launch.title(&ui.config),
             ui.tabs_bar.clone(),
             ui.stack.clone(),
         )
     };
-
-    let terminal = Terminal::new();
-    terminal.set_hexpand(true);
-    terminal.set_vexpand(true);
-    terminal.add_css_class("veyl-terminal");
-    apply_terminal_settings(&terminal, &settings);
-
+    let pane = panes::Pane::new(state, launch);
+    let pane_id = pane.id;
     let surface = GtkBox::new(Orientation::Vertical, 0);
     surface.add_css_class("veyl-terminal-surface");
-    surface.append(&terminal);
+    surface.append(&pane.search.overlay);
 
     let chip = GtkBox::new(Orientation::Horizontal, 0);
     chip.add_css_class("veyl-tab");
     chip.add_css_class(&format!("veyl-tab-{id}"));
 
-    let title = Path::new(shell)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("Terminal");
-    let label = Label::new(Some(title));
+    let label = Label::new(Some(&title));
     label.set_ellipsize(pango::EllipsizeMode::End);
     label.set_max_width_chars(18);
     label.set_xalign(0.0);
@@ -394,7 +530,7 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
     let select = Button::new();
     select.set_child(Some(&tab_title));
     select.add_css_class("veyl-tab-select");
-    select.set_tooltip_text(Some(title));
+    select.set_tooltip_text(Some(&title));
     select.update_property(&[Property::Label(&format!("Tab {id}, {title}"))]);
 
     let close = Button::from_icon_name("window-close-symbolic");
@@ -402,8 +538,19 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
     close.set_tooltip_text(Some("Close tab"));
     close.update_property(&[Property::Label(&format!("Close tab {id}, {title}"))]);
 
-    chip.append(&select);
-    chip.append(&close);
+    let row = GtkBox::new(Orientation::Horizontal, 0);
+    row.append(&select);
+    row.append(&close);
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&row));
+    let progress = gtk::ProgressBar::new();
+    progress.set_valign(gtk::Align::End);
+    progress.add_css_class("veyl-tab-progress");
+    progress.set_can_target(false);
+    progress.set_visible(false);
+    progress.update_property(&[Property::Label("Terminal progress")]);
+    overlay.add_overlay(&progress);
+    chip.append(&overlay);
 
     select.connect_clicked(glib::clone!(
         #[weak]
@@ -417,68 +564,26 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
     ));
 
     let menu = tabs::context_menu(&select, id);
-    let spawn = gio::Cancellable::new();
+    tabs::enable_reorder(state, &chip, &select, id);
     state.borrow_mut().tabs.push(Tab {
         id,
-        terminal: terminal.clone(),
+        panes: vec![pane],
+        active_pane: pane_id,
         surface: surface.clone(),
         chip: chip.clone(),
         select,
         close,
         label,
-        default_title: title.to_owned(),
+        default_title: title,
         color: None,
         menu,
-        spawn: spawn.clone(),
+        progress,
+        progress_timer: None,
     });
     stack.add_child(&surface);
     tabs_bar.append(&chip);
     activate_tab(state, id);
-
-    terminal.connect_child_exited(glib::clone!(
-        #[weak]
-        state,
-        move |_, _| close_tab(&state, id)
-    ));
-
-    // Let VTE finish or cancel the launch even if the last window closes first.
-    let hold = window
-        .upgrade()
-        .and_then(|window| window.application())
-        .map(|app| app.hold());
-    let shell_for_error = shell.to_owned();
-    let weak_state = Rc::downgrade(state);
-    terminal.spawn_async(
-        PtyFlags::DEFAULT,
-        home,
-        &[shell],
-        &[],
-        glib::SpawnFlags::DEFAULT,
-        || {},
-        -1,
-        Some(&spawn),
-        move |result| {
-            let _hold = hold;
-            let Err(err) = result else { return };
-            let terminal = weak_state.upgrade().and_then(|ui| {
-                ui.borrow()
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.id == id)
-                    .map(|tab| tab.terminal.clone())
-            });
-            let Some(terminal) = terminal else {
-                return;
-            };
-            let detail = err.message().replace(char::is_control, " ");
-            let message = format!(
-                "Veyl could not start the shell {shell_for_error:?}.\r\n{detail}\r\n\
-                 Check that the shell is executable and $HOME is accessible.\r\n"
-            );
-            terminal.set_input_enabled(false);
-            terminal.feed(message.as_bytes());
-        },
-    );
+    panes::spawn(state, id, pane_id);
 }
 
 fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
@@ -495,7 +600,7 @@ fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
             tab.chip.clone(),
             tab.select.clone(),
             tab.surface.clone(),
-            tab.terminal.clone(),
+            tab.active_pane().terminal.clone(),
             previous.map(|tab| (tab.chip.clone(), tab.select.clone())),
             ui.stack.clone(),
             ui.tabs_viewport.clone(),
@@ -512,12 +617,12 @@ fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
     select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::True)]);
 
     let chip = chip.downgrade();
-    let state = Rc::downgrade(state);
+    let weak_state = Rc::downgrade(state);
     viewport.add_tick_callback(move |viewport, _| {
         let Some(chip) = chip.upgrade() else {
             return glib::ControlFlow::Break;
         };
-        if !state
+        if !weak_state
             .upgrade()
             .is_some_and(|ui| ui.borrow().active == Some(id))
         {
@@ -531,6 +636,7 @@ fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
         glib::ControlFlow::Break
     });
     terminal.grab_focus();
+    panes::update_focus_actions(state);
 }
 
 fn close_tab(state: &Rc<RefCell<State>>, id: u64) {
@@ -583,7 +689,12 @@ fn close_all_tabs(state: &Rc<RefCell<State>>) {
 }
 
 fn detach_tab(tab: Tab, tabs_bar: &GtkBox, stack: &Stack) {
-    tab.spawn.cancel();
+    if let Some(timer) = tab.progress_timer {
+        timer.remove();
+    }
+    for pane in &tab.panes {
+        pane.spawn.cancel();
+    }
     tab.menu.popdown();
     tab.menu.unparent();
     // Let VTE dispose the terminal, signal its child, and release the PTY.
@@ -596,7 +707,7 @@ fn active_terminal(state: &Rc<RefCell<State>>) -> Option<Terminal> {
     ui.tabs
         .iter()
         .find(|tab| Some(tab.id) == ui.active)
-        .map(|tab| tab.terminal.clone())
+        .map(|tab| tab.active_pane().terminal.clone())
 }
 
 fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<RefCell<State>>) {
@@ -608,16 +719,33 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
     ));
     window.add_action(&new_tab);
 
+    let profile = gio::SimpleAction::new("open-profile", Some(&String::static_variant_type()));
+    profile.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, target| {
+            let Some(name) = target.and_then(glib::Variant::str) else {
+                return;
+            };
+            let launch = {
+                let ui = state.borrow();
+                ui.config
+                    .profiles
+                    .contains_key(name)
+                    .then(|| panes::Launch::for_profile(&ui.config, name))
+            };
+            if let Some(launch) = launch {
+                open_tab_with_launch(&state, launch);
+            }
+        }
+    ));
+    window.add_action(&profile);
+
     let close = gio::SimpleAction::new("close-tab", None);
     close.connect_activate(glib::clone!(
         #[weak]
         state,
-        move |_, _| {
-            let active = state.borrow().active;
-            if let Some(id) = active {
-                close_tab(&state, id);
-            }
-        }
+        move |_, _| panes::close_active(&state)
     ));
     window.add_action(&close);
 
@@ -645,11 +773,33 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
     ));
     window.add_action(&paste);
 
-    tabs::install_actions(window, app, state);
-    app.set_accels_for_action("win.new-tab", &["<Primary><Shift>t"]);
-    app.set_accels_for_action("win.close-tab", &["<Primary><Shift>w"]);
-    app.set_accels_for_action("win.copy", &["<Primary><Shift>c"]);
-    app.set_accels_for_action("win.paste", &["<Primary><Shift>v"]);
+    let find = gio::SimpleAction::new("find", None);
+    find.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            let active = {
+                let ui = state.borrow();
+                ui.tabs
+                    .iter()
+                    .find(|tab| Some(tab.id) == ui.active)
+                    .map(|tab| {
+                        (
+                            tab.active_pane().search.clone(),
+                            tab.active_pane().terminal.clone(),
+                        )
+                    })
+            };
+            if let Some((search, terminal)) = active {
+                search.show(&terminal);
+            }
+        }
+    ));
+    window.add_action(&find);
+
+    panes::install_actions(window, state);
+    tabs::install_actions(window, state);
+    shortcuts::apply(app, &state.borrow().config);
 }
 
 #[cfg(test)]

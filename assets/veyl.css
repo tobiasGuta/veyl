@@ -164,3 +164,52 @@ window.veyl-window.maximized .veyl-header {
   border-radius: 8px;
   padding: 4px;
 }
+
+.veyl-find {
+  background: #22232b;
+  color: #f2f3f7;
+  border: 1px solid rgba(212, 216, 240, 0.20);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.veyl-split > separator {
+  min-width: 4px;
+  min-height: 4px;
+  background-color: rgba(212, 216, 240, 0.16);
+}
+
+.veyl-tab-progress trough,
+.veyl-tab-progress progress {
+  min-height: 2px;
+  min-width: 2px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.veyl-tab-progress trough {
+  background-color: transparent;
+}
+
+.veyl-tab-progress progress {
+  background-color: #a9bfff;
+}
+
+.veyl-tab:drop(active) {
+  box-shadow: inset 0 -2px #a9bfff;
+}
+
+.veyl-tab-progress.error progress {
+  background-color: #f17883;
+}
+
+.veyl-tab-progress.paused progress {
+  background-color: #dfc27a;
+}
+
+.veyl-split .veyl-terminal:focus {
+  outline: 1px solid rgba(169, 191, 255, 0.42);
+  outline-offset: -1px;
+}

@@ -268,8 +268,11 @@ fn wayland_clipboard_actions() {
     let (window, state) = create_window(&app, Config::default());
     window.present();
     open_tab(&state);
+    let other = active_terminal(&state).unwrap();
+    let other_shell = shell_process(&other);
+    activate(&window, "split-right");
     let terminal = active_terminal(&state).unwrap();
-    shell_process(&terminal);
+    assert_ne!(other_shell, shell_process(&terminal));
 
     for (action, expected) in [
         ("win.new-tab", "<Primary><Shift>t"),
@@ -362,31 +365,33 @@ fn wayland_clipboard_actions() {
             .any(|line| line == "VEYL_PASTE=veyl-paste-test")
             .then_some(())
     });
-    drop(terminal);
+    assert!(!terminal_text(&other).contains("veyl-paste-test"));
+    assert!(other_shell.exists());
+    drop((terminal, other));
     window.close();
+}
+
+fn descendants(root: &gtk::Widget) -> Vec<gtk::Widget> {
+    let mut widgets = vec![root.clone()];
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        widgets.extend(descendants(&widget));
+        child = widget.next_sibling();
+    }
+    widgets
+}
+
+fn button(root: &gtk::Widget, label: &str) -> Button {
+    descendants(root)
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<Button>().ok())
+        .find(|button| button.label().as_deref() == Some(label))
+        .unwrap()
 }
 
 #[test]
 #[ignore = "requires a GNOME Wayland desktop and a fresh XDG_CONFIG_HOME"]
 fn wayland_appearance_settings() {
-    fn descendants(root: &gtk::Widget) -> Vec<gtk::Widget> {
-        let mut widgets = vec![root.clone()];
-        let mut child = root.first_child();
-        while let Some(widget) = child {
-            widgets.extend(descendants(&widget));
-            child = widget.next_sibling();
-        }
-        widgets
-    }
-
-    fn button(root: &gtk::Widget, label: &str) -> Button {
-        descendants(root)
-            .into_iter()
-            .filter_map(|widget| widget.downcast::<Button>().ok())
-            .find(|button| button.label().as_deref() == Some(label))
-            .unwrap()
-    }
-
     let path = Config::path().unwrap();
     let original = "# My settings\nfont_size = 14 # pt\nextra_option = true\n";
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -503,7 +508,11 @@ fn wayland_tab_interactions() {
     let (menu, terminal, label) = {
         let ui = state.borrow();
         let tab = &ui.tabs[1];
-        (tab.menu.clone(), tab.terminal.clone(), tab.label.clone())
+        (
+            tab.menu.clone(),
+            tab.active_pane().terminal.clone(),
+            tab.label.clone(),
+        )
     };
     let process = shell_process(&terminal);
     menu.popup();
@@ -575,5 +584,239 @@ fn wayland_tab_interactions() {
     wait_for("closed context tab's shell to exit", || {
         (!process.exists()).then_some(())
     });
+    window.close();
+}
+
+#[test]
+#[ignore = "requires a GNOME Wayland desktop and an isolated Bash HOME"]
+fn wayland_search_and_tab_organization() {
+    fn search_entry(search: &search::Search) -> gtk::SearchEntry {
+        search
+            .overlay
+            .last_child()
+            .unwrap()
+            .first_child()
+            .unwrap()
+            .first_child()
+            .unwrap()
+            .downcast()
+            .unwrap()
+    }
+
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    let first = active_terminal(&state).unwrap();
+    let first_shell = shell_process(&first);
+    let test_dir = PathBuf::from(std::env::var_os("HOME").unwrap()).join("folder with spaces");
+    fs::create_dir_all(&test_dir).unwrap();
+    first.feed_child(
+        b"cd 'folder with spaces'; printf '[] Needle.+\\n'; printf 'LINE_%03d\\n' {1..160}\r",
+    );
+    wait_for("Bash to enter the folder and produce scrollback", || {
+        (fs::read_link(first_shell.join("cwd")).ok().as_ref() == Some(&test_dir)
+            && terminal_text(&first).contains("LINE_160"))
+        .then_some(())
+    });
+
+    activate(&window, "find");
+    let first_search = state.borrow().tabs[0].active_pane().search.clone();
+    let first_entry = search_entry(&first_search);
+    first_entry.set_text("needle.+");
+    wait_for("the literal case-insensitive match in scrollback", || {
+        first.has_selection().then_some(())
+    });
+    assert!(first.search_get_regex().is_some());
+    let bar = first_search.overlay.last_child().unwrap();
+    let case_button = descendants(&bar)
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::ToggleButton>().ok())
+        .unwrap();
+    let result = bar.last_child().unwrap().downcast::<Label>().unwrap();
+    case_button.set_active(true);
+    assert!(result.is_visible());
+    assert_eq!(result.text(), "No matches");
+    case_button.set_active(false);
+    assert!(!result.is_visible());
+
+    activate(&window, "duplicate-tab");
+    let second = active_terminal(&state).unwrap();
+    let second_shell = shell_process(&second);
+    assert_ne!(first_shell, second_shell);
+    assert_eq!(fs::read_link(second_shell.join("cwd")).unwrap(), test_dir);
+    activate(&window, "find");
+    let second_search = state.borrow().tabs[1].active_pane().search.clone();
+    let second_entry = search_entry(&second_search);
+    assert!(second_entry.text().is_empty());
+    second_entry.set_text("second tab only");
+    assert!(second.search_get_regex().is_some());
+    second_entry.emit_by_name::<()>("stop-search", &[]);
+    assert!(second.search_get_regex().is_none());
+    assert!(second.has_focus());
+    assert_eq!(first_entry.text(), "needle.+");
+
+    let second_select = state.borrow().tabs[1].select.clone();
+    assert!(tabs::drop_tab(&state, &second_select, 1, false));
+    assert_eq!(state.borrow().tabs[0].id, 2);
+    assert_eq!(
+        state.borrow().tabs_bar.first_child(),
+        Some(state.borrow().tabs[0].chip.clone().upcast())
+    );
+    activate(&window, "next-tab");
+    assert_eq!(active_terminal(&state).as_ref(), Some(&first));
+    assert!(first_shell.exists() && second_shell.exists());
+    drop((first, second, first_search, second_search));
+    window.close();
+}
+
+#[test]
+#[ignore = "requires a GNOME Wayland desktop and an isolated Bash HOME"]
+fn wayland_profiles_splits_and_progress() {
+    let workspace = PathBuf::from(std::env::var_os("HOME").unwrap()).join("Projects folder");
+    fs::create_dir_all(&workspace).unwrap();
+    let mut config = Config::default();
+    config.profiles.insert(
+        "Projects".into(),
+        crate::config::Profile {
+            directory: Some(workspace.clone()),
+            tab_name: Some("Project shell".into()),
+            color_scheme: Some("Midnight".into()),
+            ..Default::default()
+        },
+    );
+
+    let app = test_application();
+    let (window, state) = create_window(&app, config);
+    window.present();
+    gtk::prelude::WidgetExt::activate_action(
+        &window,
+        "win.open-profile",
+        Some(&"Projects".to_variant()),
+    )
+    .unwrap();
+    let first = active_terminal(&state).unwrap();
+    let first_shell = shell_process(&first);
+    assert_eq!(state.borrow().tabs[0].label.text(), "Project shell");
+    assert_eq!(fs::read_link(first_shell.join("cwd")).unwrap(), workspace);
+    first.feed(b"\r\n\x1b[31mTHEME_RED\x1b[0m\r\n\x1b]9;4;1;62\x1b\\");
+    let progress = state.borrow().tabs[0].progress.clone();
+    wait_for("profile palette and tab progress", || {
+        let html = first.text_format(vte4::Format::Html).unwrap_or_default();
+        (html.contains("<font color=\"#F17883\">THEME_RED</font>")
+            && progress.is_visible()
+            && (progress.fraction() - 0.62).abs() < 0.001)
+            .then_some(())
+    });
+    first.feed(b"\x1b]9;4;2;62\x1b\\");
+    wait_for("error progress style", || {
+        progress.has_css_class("error").then_some(())
+    });
+    first.feed(b"\x1b]9;4;3;0\x1b\\");
+    wait_for("indeterminate progress animation", || {
+        state.borrow().tabs[0].progress_timer.as_ref().map(|_| ())
+    });
+    first.feed(b"\x1b]9;4;0;0\x1b\\");
+    wait_for("completed progress to disappear", || {
+        (!progress.is_visible()).then_some(())
+    });
+
+    activate(&window, "split-right");
+    let right = active_terminal(&state).unwrap();
+    let right_shell = shell_process(&right);
+    assert_eq!(fs::read_link(right_shell.join("cwd")).unwrap(), workspace);
+    assert_ne!(first_shell, right_shell);
+    let surface = state.borrow().tabs[0].surface.clone();
+    wait_for("side-by-side layout", || {
+        first
+            .compute_bounds(&surface)
+            .zip(right.compute_bounds(&surface))
+            .and_then(|(left, right)| (left.width() > 10.0 && right.x() > left.x()).then_some(()))
+    });
+    activate(&window, "focus-pane-left");
+    assert_eq!(active_terminal(&state).as_ref(), Some(&first));
+    activate(&window, "focus-pane-right");
+    assert_eq!(active_terminal(&state).as_ref(), Some(&right));
+
+    activate(&window, "split-down");
+    let bottom = active_terminal(&state).unwrap();
+    let bottom_shell = shell_process(&bottom);
+    wait_for("nested vertical layout", || {
+        right
+            .compute_bounds(&surface)
+            .zip(bottom.compute_bounds(&surface))
+            .and_then(|(top, bottom)| (top.height() > 10.0 && bottom.y() > top.y()).then_some(()))
+    });
+    assert_eq!(state.borrow().tabs[0].panes.len(), 3);
+    drop(bottom);
+    activate(&window, "close-tab");
+    assert_eq!(active_terminal(&state).as_ref(), Some(&right));
+    wait_for("closed pane's shell to exit", || {
+        (!bottom_shell.exists()).then_some(())
+    });
+
+    right.feed_child(b"exit\r");
+    wait_for("exited pane to collapse", || {
+        (state.borrow().tabs[0].panes.len() == 1
+            && surface
+                .first_child()
+                .is_some_and(|child| child.is::<gtk::Overlay>()))
+        .then_some(())
+    });
+    assert_eq!(active_terminal(&state).as_ref(), Some(&first));
+    assert!(first_shell.exists());
+    activate(&window, "split-right");
+    let final_pane = active_terminal(&state).unwrap();
+    let final_process = shell_process(&final_pane);
+    drop((first, right, final_pane, surface));
+    window.close();
+    assert!(app.windows().is_empty());
+    assert!(state.borrow().tabs.is_empty());
+    drop(window);
+    wait_for("window close to release both split shells", || {
+        (!first_shell.exists() && !final_process.exists()).then_some(())
+    });
+}
+
+#[test]
+#[ignore = "requires a GNOME Wayland session and fresh settings"]
+fn wayland_shortcut_editor() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    window.present();
+    open_tab(&state);
+    open_shortcuts(&state);
+    let dialog = wait_for("shortcut editor", || {
+        gtk::Window::list_toplevels()
+            .into_iter()
+            .find_map(|widget| {
+                widget.downcast::<gtk::Window>().ok().filter(|window| {
+                    window.is_visible() && window.title().as_deref() == Some("Veyl Shortcuts")
+                })
+            })
+    });
+    let entries = descendants(dialog.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Entry>().ok())
+        .collect::<Vec<_>>();
+    let copy = &entries[2];
+    copy.set_text(&entries[3].text());
+    let save = button(dialog.upcast_ref(), "Save");
+    save.emit_clicked();
+    assert!(dialog.is_visible());
+    assert!(descendants(dialog.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<Label>().ok())
+        .any(|label| label.is_visible() && label.text().contains("assigned to both")));
+    assert!(state.borrow().config.shortcuts.is_empty());
+
+    copy.set_text("<Primary><Shift>y");
+    save.emit_clicked();
+    assert!(!dialog.is_visible());
+    assert_eq!(Config::load().shortcuts["copy"], vec!["<Primary><Shift>y"]);
+    assert_eq!(
+        gtk::accelerator_parse(&app.accels_for_action("win.copy")[0]),
+        gtk::accelerator_parse("<Primary><Shift>y")
+    );
     window.close();
 }

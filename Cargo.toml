@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
 gdk4-wayland = "0.11"
-vte4 = "0.10"
+vte4 = { version = "0.10", features = ["v0_80"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 toml_edit = "0.25"
