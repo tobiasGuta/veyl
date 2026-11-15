@@ -1,46 +1,34 @@
 # Verification status
 
-Updated: 2026-11-15 (tab strip, frosted background, and desktop smoke testing)
+Updated 2026-11-15 for [draft PR #2](https://github.com/tobiasGuta/veyl/pull/2).
 
-**Classification:** v0.1 development foundation. The app launches on Fedora 45 GNOME Wayland. The full desktop release checklist is still open.
+**Classification:** v0.1 development foundation. This branch passed the native lifecycle regression tests. The physical keyboard shortcuts and visual checks remain open.
 
-## Appearance branch verification
+## Fedora 45 validation
 
-- Fedora 45 Workstation with GNOME Shell/Mutter 51.1, GTK 4.24.1 and VTE 0.84.1. Wayland at 1920×1080 and 100% scale. Fontconfig resolved Cascadia Mono to Cascadia Mono NF.
-- `cargo fmt -- --check`, `cargo test --locked` (4 passed), `cargo clippy --locked --all-targets -- -D warnings`, and `cargo build --locked` passed locally.
-- With Blur My Shell temporarily disabled, `GDK_BACKEND=wayland WAYLAND_DEBUG=1` showed GTK sending a rounded `set_blur_region` to Mutter. The opacity slider was exercised at 40%, 72%, and 100%. The protocol trace showed the region being cleared at 100%, restored at 72%, and cleared when frosted mode was toggled off.
-- GTK accessibility actions opened the popover and changed both settings. Relaunching restored 55% opacity and frosted mode off. The tab smoke test opened seven tabs, verified the newest tab scrolled into view, and confirmed the previous tab became selected when it closed.
-- A test shell (`/bin/sh`) ran on a `/dev/pts/*` PTY. On `GDK_BACKEND=x11` under XWayland, the popover reported the unsupported blur path and enabled the opacity slider after frosted mode was turned off.
-- A Wayland run emitted a GDK duplicate frame-timing warning during popup presentation. The appearance and tab controls continued to work.
-- Pixel-level blur fidelity, legibility across backdrops, and fractional scaling still need visual review. Low opacity over bright content can reduce contrast.
+Fedora 45 Workstation, GNOME Shell and Mutter 51.1, GTK 4.24.1, VTE 0.84.1. The desktop ran Wayland at 1920×1080 and 100% scale. Fontconfig resolved Cascadia Mono to Cascadia Mono NF. The clipboard test ran in a separate headless GNOME Wayland session with a private clipboard.
 
-## Bootstrap CI results
-
-- **GitHub main source commit:** [d51388d](https://github.com/tobiasGuta/veyl/commit/d51388dbced6a8b841148b1ad09a4e6d3d9986b5)
-- **Green Fedora 45 build:** [GitHub Actions run #43757202645](https://github.com/tobiasGuta/veyl/actions/runs/43757202645)
-- **Native dependencies in CI:** GTK 4.24.1, VTE 0.84.1 (reported by pkg-config).
-- **Rust tests:** `cargo test` — 3 passed, 0 failed (config normalization and compatibility).
-- **Rust build:** `cargo build` — succeeded.
-- Fixed the GTK4 `v4_10` feature mismatch and a Rust ownership error discovered by earlier CI runs.
-- Fixed an additional runtime RefCell borrow issue in the tab-closing action, but **runtime behavior remains untested**.
-
-| Requirement | Status | Evidence / gap |
+| Requirement | Result | Evidence |
 | --- | --- | --- |
-| Repository initialization and docs | PASS | Source, AGENTS.md and docs on main |
-| Fedora 45 Rust build | PASS | Actions #43757202645 |
-| Cargo unit tests | PASS | 4 tests locally on the appearance branch |
-| Cargo fmt / clippy | PASS | Local checks on Fedora 45 |
-| Cargo.lock | TRACKED | CI uses `--locked` |
-| Terminal PTY/shell launch | SMOKE PASS | `/bin/sh` attached to a PTY on GNOME Wayland |
-| Tab management | SMOKE PASS | Selection, overflow and closure on GNOME Wayland. Lifecycle stress test and audit pending |
-| Clipboard shortcuts | NOT RUN | GUI test required |
-| GTK background opacity | SMOKE PASS | Slider and settings write exercised. Visual contrast review pending |
-| Compositor background blur | PROTOCOL PASS | Mutter received and cleared blur regions with Blur My Shell disabled. Visual comparison pending |
-| Fedora 45 GNOME Wayland manual testing | PARTIAL | Native launch and accessibility-driven smoke tests. See remaining checklist |
-| Security review | NOT RUN | Child cleanup, signal reference cycles and settings permissions need audit |
+| Automated quality checks | PASS | `cargo fmt -- --check`, `cargo test --locked` (4 passed, 2 display tests ignored by default), `cargo clippy --locked --all-targets -- -D warnings`, and `cargo build --locked` |
+| Bash and PTY | PASS | Bash started in the isolated home, attached to `/dev/pts/*`, and returned output over the PTY |
+| Terminal resize | PASS | Maximize and restore updated the PTY dimensions. Bash's `stty size` agreed |
+| ANSI color, cursor, and scrollback | PASS | VTE exported the requested RGB color, moved the cursor to the requested column, and retained the first and last of 160 output lines |
+| Vim and tmux | PASS | Fedora's Vim 9.2 (`vi`, using vt100 terminfo) accepted an Up arrow and saved an edit to the first line. tmux 3.8 opened a pane and returned to Bash |
+| Tab lifecycle | PASS | 30 running Bash tabs closed and released their terminal widgets and child processes. Another 30 immediate open/close cycles released the terminal widgets. Selection and overflow were exercised |
+| Child exit and window shutdown | PASS | Last-shell exit closed the window. Closing a tab with `sleep 120` and closing a window with two foreground `sleep` jobs released the terminal widgets and the tested shell and job processes |
+| Spawn failure | PASS | Launching the binary with a non-executable regular file in `$SHELL` showed actionable text in the tab. Closing the last tab returned process status 0. The regression test also checked that a failed launch left no PTY |
+| Clipboard and shortcut bindings | PASS | On isolated headless GNOME Wayland, the app's copy and paste actions exchanged synthetic text and Bash read the pasted value. GTK reported all four expected accelerator bindings |
+| Physical keyboard shortcuts | NOT RUN | The isolated compositor did not deliver the synthetic key events, so the actions were tested directly |
+| Wayland blur and opacity controls | PROTOCOL PASS | With Blur My Shell disabled, GTK sent a rounded blur region to Mutter. The region cleared at 100%, returned at 72%, and cleared when frosted mode was turned off. The slider also accepted 40% |
+| Fallback and persistence | PASS | XWayland reported blur unavailable and allowed tint adjustment after frosted mode was disabled. A Wayland relaunch restored 55% and frosted mode off |
+| Visual blur, text contrast, scaling | NOT RUN | Pixel-level appearance, readability across backdrops, and fractional scaling still need visual review |
+| Security review | PARTIAL | Session ownership and normal child disposal were reviewed. Independent review and settings-path hardening remain open |
 
-## Outstanding v0.1 release gates
+Run the two display tests using [the testing guide](TESTING.md#wayland-regression-tests). Native runs used `G_DEBUG=fatal-criticals`. A separate appearance smoke run still emitted GDK's duplicate frame-timing warning during Wayland popup presentation. The controls continued to work.
 
-Read [the Codex handoff](CODEX_HANDOFF.md) and [testing checklist](TESTING.md); track this work in [GitHub issue #1](https://github.com/tobiasGuta/veyl/issues/1). **Do not tag a release** until the desktop, lifecycle, formatting and security checks have evidence.
+The GNOME capability check is sufficient for the tested Mutter 51.1 setup. Its protocol advertises blur at bind time. The registry query cannot detect a compositor that leaves the protocol manager present and withdraws the blur capability at runtime. Veyl currently evaluates availability when creating the window.
 
-Do not change PASS/NOT RUN entries based on inference. Record the exact command/environment, link to the run or PR, and keep unverified claims separate from verified ones.
+VTE 0.84.1 crashed during validation when explicitly unsetting a live PTY through the nullable setter. Veyl uses terminal widget disposal for normal teardown. Detached jobs and commands that ignore hangup can outlive their tab.
+
+The [bootstrap Fedora 45 CI run](https://github.com/tobiasGuta/veyl/actions/runs/43757202645) covered three configuration tests and a debug build. [GitHub issue #1](https://github.com/tobiasGuta/veyl/issues/1) tracks the remaining v0.1 release gates.

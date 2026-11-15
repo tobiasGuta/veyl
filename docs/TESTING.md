@@ -4,9 +4,9 @@
 
 ~~~bash
 cargo fmt -- --check
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo build
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo build --locked
 ~~~
 
 Build prerequisites on Fedora 45:
@@ -16,6 +16,22 @@ sudo dnf install rust cargo rustfmt clippy gcc pkgconf-pkg-config gtk4-devel vte
 ~~~
 
 The GitHub Actions CI builds/tests within a Fedora 45 container. UI integration tests **cannot** be replaced by headless compilation.
+
+## Wayland regression tests
+
+Run from the repository on Fedora GNOME Wayland. An isolated Bash home keeps the test commands, Vim fixture, and Veyl settings apart from your own. The test exercises 30 live tab cycles, 30 closes during launch, resize, scrollback, shell launch failure, and foreground job cleanup. It runs Vim and tmux when available.
+
+~~~bash
+qa_dir=$(mktemp -d)
+mkdir "$qa_dir/home"
+touch "$qa_dir/home/.bashrc"
+env -u BASH_ENV -u ENV CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+  HOME="$qa_dir/home" XDG_CONFIG_HOME="$qa_dir/config" SHELL=/bin/bash \
+  GDK_BACKEND=wayland GTK_A11Y=none G_DEBUG=fatal-criticals \
+  cargo test --locked wayland_session_lifecycle -- --ignored --nocapture
+~~~
+
+Run the same command with `wayland_clipboard_actions` in an isolated Wayland session. That test replaces the session clipboard with synthetic text, exercises the application's copy and paste actions, and checks the ANSI foreground color in VTE's HTML export. Verify the physical shortcuts separately with the checklist below.
 
 ## Manual GNOME Wayland checklist
 
@@ -42,7 +58,9 @@ Record Fedora version, VTE/GTK versions, GNOME version, Wayland/X11 session, res
 | GNOME | Extensions off, Wayland session | App still usable |
 | Scale | 100/125/150% | UI legible, tabs usable |
 | Shell exit | `exit` | Tab closes; last tab closes app |
-| Child failure | Set invalid `$SHELL`, start app | Fallback or actionable error; no hidden failure |
+| Child failure | Point `$SHELL` at a non-executable regular file and start the app | The tab shows an actionable error, blocks input, and closes normally |
+| Close during launch | Immediately close a new tab, then repeat on the last tab | Launch cancels cleanly and no late callback affects another tab |
+| Window shutdown | Start `sleep 120` in two Bash tabs, then close the window | Both tabs release their terminals and the two foreground jobs exit |
 
 Do not use risky real malware or production credentials to test the terminal. Use synthetic output, ordinary TUI tools, and localhost tests.
 

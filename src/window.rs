@@ -19,26 +19,33 @@ use vte4::{PtyFlags, Terminal};
 struct Tab {
     id: u64,
     terminal: Terminal,
+    surface: GtkBox,
     chip: GtkBox,
     select: Button,
+    spawn: gio::Cancellable,
 }
 
 struct State {
-    window: ApplicationWindow,
+    window: glib::WeakRef<ApplicationWindow>,
     tabs_bar: GtkBox,
     tabs_viewport: Viewport,
     stack: Stack,
     tabs: Vec<Tab>,
     next_id: u64,
     active: Option<u64>,
+    closing: bool,
     config: Config,
     appearance: gtk::CssProvider,
     blur_supported: bool,
 }
 
 pub fn build(app: &Application) {
-    let config = Config::load();
+    let (window, state) = create_window(app, Config::load());
+    open_tab(&state);
+    window.present();
+}
 
+fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<RefCell<State>>) {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Veyl")
@@ -113,15 +120,16 @@ pub fn build(app: &Application) {
     window.set_child(Some(&stack));
 
     let state = Rc::new(RefCell::new(State {
-        window: window.clone(),
+        window: window.downgrade(),
         tabs_bar,
         tabs_viewport,
         stack,
         tabs: Vec::new(),
         next_id: 0,
         active: None,
+        closing: false,
         config,
-        appearance,
+        appearance: appearance.clone(),
         blur_supported,
     }));
 
@@ -129,8 +137,16 @@ pub fn build(app: &Application) {
     build_appearance_menu(&menu, &state);
 
     install_actions(&window, app, &state);
-    open_tab(&state);
-    window.present();
+    // The window owns State. Callbacks on its actions and descendants use weak references.
+    window.connect_unrealize({
+        let state = state.clone();
+        move |_| close_all_tabs(&state)
+    });
+    window.connect_destroy(move |_| {
+        gtk::style_context_remove_provider_for_display(&display, &appearance);
+        gtk::style_context_remove_provider_for_display(&display, &static_css);
+    });
+    (window, state)
 }
 
 fn update_appearance(state: &Rc<RefCell<State>>) {
@@ -150,7 +166,9 @@ fn update_appearance(state: &Rc<RefCell<State>>) {
         (color.blue() * 255.0).round() as u8,
         opacity,
     );
-    current.appearance.load_from_string(&css);
+    let appearance = current.appearance.clone();
+    drop(current);
+    appearance.load_from_string(&css);
 }
 
 fn apply_terminal_settings(terminal: &Terminal, config: &Config) {
@@ -208,26 +226,29 @@ fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
     slider.set_format_value_func(|_, value| format!("{value:.0}%"));
     slider.set_value(opacity * 100.0);
     slider.set_sensitive(!blur || blur_supported);
-    {
-        let state = state.clone();
-        slider.connect_value_changed(move |scale| {
+    slider.connect_value_changed(glib::clone!(
+        #[weak]
+        state,
+        move |scale| {
             state.borrow_mut().config.opacity = scale.value() / 100.0;
             save_appearance(&state);
             update_appearance(&state);
-        });
-    }
-    {
-        let state = state.clone();
-        let slider = slider.clone();
-        blur_switch.connect_active_notify(move |toggle| {
+        }
+    ));
+    blur_switch.connect_active_notify(glib::clone!(
+        #[weak]
+        state,
+        #[weak]
+        slider,
+        move |toggle| {
             let enabled = toggle.is_active();
             state.borrow_mut().config.blur = enabled;
             help.set_visible(enabled && !blur_supported);
             slider.set_sensitive(!enabled || blur_supported);
             save_appearance(&state);
             update_appearance(&state);
-        });
-    }
+        }
+    ));
 
     body.append(&opacity_label);
     body.append(&slider);
@@ -251,10 +272,24 @@ fn shell_path() -> String {
 }
 
 fn open_tab(state: &Rc<RefCell<State>>) {
-    let (id, settings) = {
+    let home = std::env::var("HOME").ok();
+    open_tab_with_shell(state, &shell_path(), home.as_deref());
+}
+
+fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&str>) {
+    let (id, settings, window, tabs_bar, stack) = {
         let mut ui = state.borrow_mut();
+        if ui.closing {
+            return;
+        }
         ui.next_id += 1;
-        (ui.next_id, ui.config.clone())
+        (
+            ui.next_id,
+            ui.config.clone(),
+            ui.window.clone(),
+            ui.tabs_bar.clone(),
+            ui.stack.clone(),
+        )
     };
 
     let terminal = Terminal::new();
@@ -270,8 +305,7 @@ fn open_tab(state: &Rc<RefCell<State>>) {
     let chip = GtkBox::new(Orientation::Horizontal, 0);
     chip.add_css_class("veyl-tab");
 
-    let shell = shell_path();
-    let title = Path::new(&shell)
+    let title = Path::new(shell)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("Terminal");
@@ -298,78 +332,109 @@ fn open_tab(state: &Rc<RefCell<State>>) {
     chip.append(&select);
     chip.append(&close);
 
-    {
-        let state = state.clone();
-        select.connect_clicked(move |_| activate_tab(&state, id));
-    }
-    {
-        let state = state.clone();
-        close.connect_clicked(move |_| close_tab(&state, id));
-    }
+    select.connect_clicked(glib::clone!(
+        #[weak]
+        state,
+        move |_| activate_tab(&state, id)
+    ));
+    close.connect_clicked(glib::clone!(
+        #[weak]
+        state,
+        move |_| close_tab(&state, id)
+    ));
 
-    {
-        let mut ui = state.borrow_mut();
-        ui.tabs_bar.append(&chip);
-        ui.stack.add_named(&surface, Some(&format!("tab-{id}")));
-        ui.tabs.push(Tab {
-            id,
-            terminal: terminal.clone(),
-            chip,
-            select,
-        });
-    }
+    let spawn = gio::Cancellable::new();
+    state.borrow_mut().tabs.push(Tab {
+        id,
+        terminal: terminal.clone(),
+        surface: surface.clone(),
+        chip: chip.clone(),
+        select,
+        spawn: spawn.clone(),
+    });
+    stack.add_child(&surface);
+    tabs_bar.append(&chip);
     activate_tab(state, id);
 
-    {
-        let state = state.clone();
-        terminal.connect_child_exited(move |_, _status| close_tab(&state, id));
-    }
+    terminal.connect_child_exited(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| close_tab(&state, id)
+    ));
 
-    let shell_for_error = shell.clone();
-    let home = std::env::var("HOME").ok();
+    // Let VTE finish or cancel the launch even if the last window closes first.
+    let hold = window
+        .upgrade()
+        .and_then(|window| window.application())
+        .map(|app| app.hold());
+    let shell_for_error = shell.to_owned();
+    let weak_state = Rc::downgrade(state);
     terminal.spawn_async(
         PtyFlags::DEFAULT,
-        home.as_deref(),
-        &[shell.as_str()],
+        home,
+        &[shell],
         &[],
         glib::SpawnFlags::DEFAULT,
         || {},
         -1,
-        None::<&gio::Cancellable>,
+        Some(&spawn),
         move |result| {
-            if let Err(err) = result {
-                eprintln!("Veyl: failed to start shell {shell_for_error}: {err}");
-            }
+            let _hold = hold;
+            let Err(err) = result else { return };
+            let terminal = weak_state.upgrade().and_then(|ui| {
+                ui.borrow()
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == id)
+                    .map(|tab| tab.terminal.clone())
+            });
+            let Some(terminal) = terminal else {
+                return;
+            };
+            let detail = err.message().replace(char::is_control, " ");
+            let message = format!(
+                "Veyl could not start the shell {shell_for_error:?}.\r\n{detail}\r\n\
+                 Check that the shell is executable and $HOME is accessible.\r\n"
+            );
+            terminal.set_input_enabled(false);
+            terminal.feed(message.as_bytes());
         },
     );
 }
 
 fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
-    let mut ui = state.borrow_mut();
-    let Some(selected) = ui.tabs.iter().find(|tab| tab.id == id) else {
-        return;
-    };
-    let chip = selected.chip.downgrade();
-    let terminal = selected.terminal.clone();
-    ui.active = Some(id);
-    ui.stack.set_visible_child_name(&format!("tab-{id}"));
-    for tab in &ui.tabs {
-        let active = tab.id == id;
-        let pressed = if active {
-            gtk::AccessibleTristate::True
-        } else {
-            gtk::AccessibleTristate::False
+    let (chip, select, surface, terminal, previous, stack, viewport) = {
+        let mut ui = state.borrow_mut();
+        let Some(tab) = ui.tabs.iter().find(|tab| tab.id == id) else {
+            return;
         };
-        tab.select
-            .update_state(&[AccessibleState::Pressed(pressed)]);
-        if active {
-            tab.chip.add_css_class("active");
-        } else {
-            tab.chip.remove_css_class("active");
-        }
+        let previous = ui
+            .tabs
+            .iter()
+            .find(|tab| Some(tab.id) == ui.active && tab.id != id);
+        let widgets = (
+            tab.chip.clone(),
+            tab.select.clone(),
+            tab.surface.clone(),
+            tab.terminal.clone(),
+            previous.map(|tab| (tab.chip.clone(), tab.select.clone())),
+            ui.stack.clone(),
+            ui.tabs_viewport.clone(),
+        );
+        ui.active = Some(id);
+        widgets
+    };
+    if let Some((chip, select)) = previous {
+        chip.remove_css_class("active");
+        select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::False)]);
     }
+    stack.set_visible_child(&surface);
+    chip.add_css_class("active");
+    select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::True)]);
+
+    let chip = chip.downgrade();
     let state = Rc::downgrade(state);
-    ui.tabs_viewport.add_tick_callback(move |viewport, _| {
+    viewport.add_tick_callback(move |viewport, _| {
         let Some(chip) = chip.upgrade() else {
             return glib::ControlFlow::Break;
         };
@@ -386,38 +451,59 @@ fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
         viewport.scroll_to(&chip, None);
         glib::ControlFlow::Break
     });
-    drop(ui);
     terminal.grab_focus();
 }
 
 fn close_tab(state: &Rc<RefCell<State>>, id: u64) {
-    let (next, should_close) = {
+    let (tab, next, window, tabs_bar, stack) = {
         let mut ui = state.borrow_mut();
         let Some(index) = ui.tabs.iter().position(|tab| tab.id == id) else {
             return;
         };
         let tab = ui.tabs.remove(index);
-        ui.tabs_bar.remove(&tab.chip);
-        // The GTK Stack owns the surface. The VTE widget will be released with it,
-        // closing the PTY; the child may receive SIGHUP (not guaranteed).
-        if let Some(surface) = ui.stack.child_by_name(&format!("tab-{id}")) {
-            ui.stack.remove(&surface);
-        }
         let next = if ui.active == Some(id) {
+            ui.active = None;
             ui.tabs.last().map(|tab| tab.id)
         } else {
             None
         };
-        if ui.active == Some(id) {
-            ui.active = next;
-        }
-        (next, ui.tabs.is_empty())
+        let window = if ui.tabs.is_empty() {
+            ui.closing = true;
+            ui.window.upgrade()
+        } else {
+            None
+        };
+        (tab, next, window, ui.tabs_bar.clone(), ui.stack.clone())
     };
-    if should_close {
-        state.borrow().window.close();
+    detach_tab(tab, &tabs_bar, &stack);
+    if let Some(window) = window {
+        window.close();
     } else if let Some(id) = next {
         activate_tab(state, id);
     }
+}
+
+fn close_all_tabs(state: &Rc<RefCell<State>>) {
+    let (tabs, tabs_bar, stack) = {
+        let mut ui = state.borrow_mut();
+        ui.closing = true;
+        ui.active = None;
+        (
+            std::mem::take(&mut ui.tabs),
+            ui.tabs_bar.clone(),
+            ui.stack.clone(),
+        )
+    };
+    for tab in tabs {
+        detach_tab(tab, &tabs_bar, &stack);
+    }
+}
+
+fn detach_tab(tab: Tab, tabs_bar: &GtkBox, stack: &Stack) {
+    tab.spawn.cancel();
+    // Let VTE dispose the terminal, signal its child, and release the PTY.
+    tabs_bar.remove(&tab.chip);
+    stack.remove(&tab.surface);
 }
 
 fn active_terminal(state: &Rc<RefCell<State>>) -> Option<Terminal> {
@@ -430,44 +516,48 @@ fn active_terminal(state: &Rc<RefCell<State>>) -> Option<Terminal> {
 
 fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<RefCell<State>>) {
     let new_tab = gio::SimpleAction::new("new-tab", None);
-    {
-        let state = state.clone();
-        new_tab.connect_activate(move |_, _| open_tab(&state));
-    }
+    new_tab.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| open_tab(&state)
+    ));
     window.add_action(&new_tab);
 
     let close = gio::SimpleAction::new("close-tab", None);
-    {
-        let state = state.clone();
-        close.connect_activate(move |_, _| {
-            let active_id = state.borrow().active;
-            if let Some(id) = active_id {
+    close.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            let active = state.borrow().active;
+            if let Some(id) = active {
                 close_tab(&state, id);
             }
-        });
-    }
+        }
+    ));
     window.add_action(&close);
 
     let copy = gio::SimpleAction::new("copy", None);
-    {
-        let state = state.clone();
-        copy.connect_activate(move |_, _| {
+    copy.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
             if let Some(terminal) = active_terminal(&state) {
                 terminal.copy_clipboard_format(vte4::Format::Text);
             }
-        });
-    }
+        }
+    ));
     window.add_action(&copy);
 
     let paste = gio::SimpleAction::new("paste", None);
-    {
-        let state = state.clone();
-        paste.connect_activate(move |_, _| {
+    paste.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
             if let Some(terminal) = active_terminal(&state) {
                 terminal.paste_clipboard();
             }
-        });
-    }
+        }
+    ));
     window.add_action(&paste);
 
     app.set_accels_for_action("win.new-tab", &["<Primary><Shift>t"]);
@@ -475,3 +565,6 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
     app.set_accels_for_action("win.copy", &["<Primary><Shift>c"]);
     app.set_accels_for_action("win.paste", &["<Primary><Shift>v"]);
 }
+
+#[cfg(test)]
+mod tests;

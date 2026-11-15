@@ -22,7 +22,7 @@ cargo run
 
 Veyl opens a GTK4 window and uses VTE4 to spawn the current user's shell using the Linux pseudo-terminal subsystem. It does **not** replace Bash, Fish, Zsh, or the system terminal. Keep your existing terminal installed while evaluating it.
 
-If the application fails to compile, please report the exact `cargo build` output; the first independent Fedora validation is an explicit milestone.
+If Veyl cannot start the shell, the affected tab shows the error and can be closed normally. If the application fails to compile, please include the exact `cargo build --locked` output in your report.
 
 ## What v0.1 includes in source
 

@@ -26,7 +26,11 @@ The terminal engine is upstream VTE4, **not a new ANSI/VT parser**. GTK4 renders
 
 ## State and lifecycle
 
-One process hosts multiple sessions. Each tab has a unique numeric identifier, GTK surface and VTE Terminal widget, all owned by State. Switching tabs changes the visible Stack child. Tab close removes its GTK widgets; VTE closes its PTY, which normally causes a SIGHUP to interactive foreground processes. Do not assume all descendants terminate. **Codex priority:** audit reentrant GTK signal handlers, ownership cycles, failure handling, and process cleanup under close and shutdown.
+The window owns its shared state. The state holds a weak reference back to the window. Actions and tab callbacks also use weak references. Each tab has a unique ID, a GTK surface, a VTE terminal, and a cancellable for the shell launch. Switching tabs changes the visible Stack child.
+
+Closing a tab removes it from the state before cancelling the launch and unparenting its widgets. Window teardown drains all tabs through the same path. GTK and VTE operations that can emit signals run after the state borrow ends, so a late child-exit signal sees the removed tab ID and returns. VTE disposes the terminal, signals the child, and releases the PTY. A short-lived application hold lets an in-flight launch finish or cancel when the last window closes.
+
+When spawning fails in an open tab, Veyl displays the error in that tab and disables input. Closing the failed tab uses the ordinary close action.
 
 VTE spawns the user's `$SHELL` as an executable path, **not** via `sh -c`. It inherits the process environment and starts in `$HOME`; input typed into the terminal executes with the user's normal permissions. Do not setuid, wrap in `sudo`, or automatically elevate.
 
@@ -37,6 +41,8 @@ Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/co
 ## Rendering constraint
 
 The GTK window paints one background tint beneath the header and VTE. VTE skips clearing its default background, leaving glyphs and terminal color cells opaque. On GTK 4.24+ with `ext-background-effect-v1` advertised by the Wayland display, GTK sends the blur region for the window's backdrop filter to the compositor. When that path is unavailable, the default frosted setting uses an opaque tint. Plain background alpha is available by turning off frosted mode.
+
+Veyl checks for the protocol manager when it creates the window. Mutter 51.1 advertises the blur capability when a client binds the manager. The protocol permits capability changes, and GTK 4.24 does not expose those changes through the registry query. Compositors that withdraw blur while keeping the manager advertised can show a plain tint until the user changes the appearance setting.
 
 ## Future abstraction boundaries
 
