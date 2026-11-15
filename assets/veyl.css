@@ -1,0 +1,84 @@
+/* Veyl v0.1: inspired by Windows Terminal's dark, compact Fluent styling.
+   Not a Microsoft theme or use of Microsoft trademarks/assets. */
+
+window.veyl-window {
+  color: #e8eaf0;
+}
+
+.veyl-header {
+  min-height: 44px;
+  background-color: rgba(28, 30, 40, 0.95);
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: none;
+}
+
+.veyl-brand {
+  color: #a9bfff;
+  font-size: 18px;
+  font-weight: 700;
+  min-width: 34px;
+}
+
+.veyl-tabs {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.veyl-tab {
+  min-height: 32px;
+  background-color: rgba(255, 255, 255, 0.045);
+  border-radius: 7px 7px 0 0;
+  border: 1px solid transparent;
+}
+
+.veyl-tab.active {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.09);
+  border-bottom-color: transparent;
+}
+
+.veyl-tab-select,
+.veyl-tab-close,
+.veyl-header-button {
+  background: transparent;
+  color: #dce0eb;
+  border: none;
+  box-shadow: none;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+}
+
+.veyl-tab-select {
+  min-width: 102px;
+  font-size: 12px;
+}
+
+.veyl-tab-close {
+  min-width: 24px;
+  padding: 0 5px;
+}
+
+.veyl-tab-select:hover,
+.veyl-tab-close:hover,
+.veyl-header-button:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+}
+
+.veyl-stack {
+  padding: 0;
+}
+
+.veyl-terminal-surface {
+  padding: 10px 12px;
+}
+
+.veyl-terminal {
+  background-color: transparent;
+}
+
+.veyl-hint {
+  opacity: 0.7;
+  font-size: 11px;
+}

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Veyl
+Comment=Dark translucent Fedora terminal
+Exec=veyl
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupNotify=true
