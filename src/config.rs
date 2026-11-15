@@ -1,7 +1,19 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CursorShape {
+    #[default]
+    Block,
+    Beam,
+    Underline,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -13,6 +25,9 @@ pub struct Config {
     pub scrollback_lines: i64,
     pub background: String,
     pub foreground: String,
+    pub cursor_shape: CursorShape,
+    pub padding_x: u16,
+    pub padding_y: u16,
 }
 
 impl Default for Config {
@@ -25,6 +40,9 @@ impl Default for Config {
             scrollback_lines: 10_000,
             background: "#10121a".to_owned(),
             foreground: "#e8eaf0".to_owned(),
+            cursor_shape: CursorShape::Block,
+            padding_x: 10,
+            padding_y: 8,
         }
     }
 }
@@ -44,6 +62,8 @@ impl Config {
         }
         self.opacity = self.opacity.clamp(0.40, 1.0);
         self.font_size = self.font_size.clamp(7, 32);
+        self.padding_x = self.padding_x.min(48);
+        self.padding_y = self.padding_y.min(48);
         self.scrollback_lines = self.scrollback_lines.clamp(100, 200_000);
         if self.font_family.trim().is_empty() {
             self.font_family = Self::default().font_family;
@@ -85,22 +105,89 @@ impl Config {
         config
     }
 
-    pub fn save(&self) -> io::Result<()> {
+    pub fn save_changes(&self, previous: &Self) -> io::Result<()> {
         let path = Self::path().ok_or_else(|| io::Error::other("no user config directory"))?;
-        let parent = path
-            .parent()
-            .ok_or_else(|| io::Error::other("invalid config path"))?;
-        fs::create_dir_all(parent)?;
-        let content = toml::to_string_pretty(self).map_err(io::Error::other)?;
-        // Do not log contents or terminal output. Atomically replace settings on save.
-        let temp = path.with_extension(format!("{}.tmp", std::process::id()));
-        fs::write(&temp, content)?;
-        if let Err(err) = fs::rename(&temp, &path) {
-            let _ = fs::remove_file(&temp);
-            return Err(err);
+        // Keep a dotfiles symlink pointing at its original destination.
+        let path = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_symlink() => fs::canonicalize(path)?,
+            Ok(_) => path,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => path,
+            Err(err) => return Err(err),
+        };
+        let source = match fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(err),
+        };
+        let content = self.update_document(previous, &source)?;
+        if content != source {
+            write_settings(&path, &content)?;
         }
         Ok(())
     }
+
+    fn update_document(&self, previous: &Self, source: &str) -> io::Result<String> {
+        let mut document = source
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(io::Error::other)?;
+        let previous = toml::Table::try_from(previous).map_err(io::Error::other)?;
+        let current = toml::Table::try_from(self).map_err(io::Error::other)?;
+        let rendered = toml::to_string(self)
+            .map_err(io::Error::other)?
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(io::Error::other)?;
+        for (key, value) in &current {
+            if previous.get(key) == Some(value) {
+                continue;
+            }
+            let mut value = rendered[key]
+                .as_value()
+                .expect("settings are scalar")
+                .clone();
+            if let Some(existing) = document.get_mut(key) {
+                if let Some(original) = existing.as_value() {
+                    *value.decor_mut() = original.decor().clone();
+                }
+                *existing = toml_edit::Item::Value(value);
+            } else {
+                document.insert(key, toml_edit::Item::Value(value));
+            }
+        }
+        let content = document.to_string();
+        toml::from_str::<Self>(&content).map_err(io::Error::other)?;
+        Ok(content)
+    }
+}
+
+fn write_settings(path: &Path, contents: &str) -> io::Result<()> {
+    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("invalid config path"))?;
+    fs::create_dir_all(parent)?;
+    let (temp, mut file) = loop {
+        let id = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
+        let temp = path.with_extension(format!("{}.{id}.tmp", std::process::id()));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)
+        {
+            Ok(file) => break (temp, file),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    };
+    let result = file
+        .write_all(contents.as_bytes())
+        .and_then(|()| file.sync_all());
+    drop(file);
+    let result = result.and_then(|()| fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -137,6 +224,26 @@ mod tests {
         let config: Config = toml::from_str(content).expect("config should parse");
         assert_eq!(config.opacity, 0.75);
         assert!(config.blur);
+    }
+
+    #[test]
+    fn editing_appearance_preserves_manual_settings_and_comments() {
+        let source =
+            "# My settings\nfont_size = 12 # points\nopacity = 0.95\n\n[future]\nflag = true\n";
+        let previous = Config::default();
+        let draft = Config {
+            font_size: 16,
+            padding_x: 14,
+            ..previous.clone()
+        };
+        let result = draft.update_document(&previous, source).unwrap();
+        assert!(result.starts_with("# My settings\nfont_size = 16 # points\nopacity = 0.95"));
+        assert!(result.contains("[future]\nflag = true"));
+        let saved: Config = toml::from_str(&result).unwrap();
+        assert_eq!(saved.font_size, 16);
+        assert_eq!(saved.padding_x, 14);
+        assert_eq!(saved.opacity, 0.95);
+        assert!(draft.update_document(&previous, "font_size = [").is_err());
     }
 
     #[test]

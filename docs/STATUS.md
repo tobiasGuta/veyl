@@ -1,5 +1,9 @@
 # Verification status
 
+## Appearance Settings follow-up
+
+On Fedora 45 GNOME Wayland, `cargo test --locked wayland_appearance_settings -- --ignored --nocapture` passed with a fresh config directory and `G_DEBUG=fatal-criticals`. The test exercised the Settings entry, live font, cursor, and padding preview, Cancel, Save, and Reset to defaults. The original Bash process remained active, and TOML comments and unrelated keys survived saving. Native picker interaction and visual preview fidelity still need manual review.
+
 Updated 2026-11-15 for [draft PR #2](https://github.com/tobiasGuta/veyl/pull/2).
 
 **Classification:** v0.1 development foundation. This branch passed the native lifecycle regression tests. The physical keyboard shortcuts and visual checks remain open.

@@ -1,4 +1,6 @@
-use crate::config::Config;
+mod settings;
+
+use crate::config::{Config, CursorShape};
 use gdk4_wayland::WaylandDisplay;
 use gtk::accessible::{Property, State as AccessibleState};
 use gtk::gdk;
@@ -36,6 +38,7 @@ struct State {
     closing: bool,
     config: Config,
     appearance: gtk::CssProvider,
+    appearance_class: String,
     blur_supported: bool,
 }
 
@@ -53,6 +56,8 @@ fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<Re
         .default_height(680)
         .build();
     window.add_css_class("veyl-window");
+    let appearance_class = format!("veyl-window-{}", window.id());
+    window.add_css_class(&appearance_class);
 
     let static_css = gtk::CssProvider::new();
     static_css.load_from_string(include_str!("../assets/veyl.css"));
@@ -130,6 +135,7 @@ fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<Re
         closing: false,
         config,
         appearance: appearance.clone(),
+        appearance_class,
         blur_supported,
     }));
 
@@ -151,38 +157,83 @@ fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<Re
 
 fn update_appearance(state: &Rc<RefCell<State>>) {
     let current = state.borrow();
-    let color = gdk::RGBA::parse(&current.config.background)
-        .unwrap_or_else(|_| gdk::RGBA::new(0.063, 0.071, 0.102, 1.0));
+    let color = appearance_color(&current.config.background, "#10121a");
     let (opacity, blur) = current.config.background_style(current.blur_supported);
     let backdrop_filter = if blur {
         "backdrop-filter: blur(24px);"
     } else {
         ""
     };
+    let class = &current.appearance_class;
     let css = format!(
-        "window.veyl-window {{ background-color: rgba({},{},{},{:.3}); {backdrop_filter} }}",
+        "window.{class} {{ background-color: rgba({},{},{},{:.3}); {backdrop_filter} }} \
+         window.{class} .veyl-terminal-surface {{ padding: {}px {}px; }}",
         (color.red() * 255.0).round() as u8,
         (color.green() * 255.0).round() as u8,
         (color.blue() * 255.0).round() as u8,
         opacity,
+        current.config.padding_y,
+        current.config.padding_x,
     );
     let appearance = current.appearance.clone();
     drop(current);
     appearance.load_from_string(&css);
 }
 
+fn appearance_color(value: &str, fallback: &str) -> gdk::RGBA {
+    let mut color = gdk::RGBA::parse(value).unwrap_or_else(|_| gdk::RGBA::parse(fallback).unwrap());
+    color.set_alpha(1.0);
+    color
+}
+
+fn apply_terminal_appearance(terminal: &Terminal, config: &Config) {
+    terminal.set_color_foreground(&appearance_color(&config.foreground, "#e8eaf0"));
+    terminal.set_cursor_shape(match config.cursor_shape {
+        CursorShape::Block => vte4::CursorShape::Block,
+        CursorShape::Beam => vte4::CursorShape::Ibeam,
+        CursorShape::Underline => vte4::CursorShape::Underline,
+    });
+    let mut font = pango::FontDescription::new();
+    font.set_family(&config.font_family);
+    font.set_size(i32::from(config.font_size) * pango::SCALE);
+    terminal.set_font(Some(&font));
+}
+
 fn apply_terminal_settings(terminal: &Terminal, config: &Config) {
-    let fallback = gdk::RGBA::new(0.91, 0.92, 0.94, 1.0);
-    let mut foreground = gdk::RGBA::parse(&config.foreground).unwrap_or(fallback);
-    foreground.set_alpha(1.0);
-    terminal.set_color_foreground(&foreground);
     terminal.set_clear_background(false);
     terminal.set_scrollback_lines(config.scrollback_lines);
-    let font = pango::FontDescription::from_string(&format!(
-        "{} {}",
-        config.font_family, config.font_size
-    ));
-    terminal.set_font(Some(&font));
+    apply_terminal_appearance(terminal, config);
+}
+
+fn open_settings(state: &Rc<RefCell<State>>) {
+    let (window, original) = {
+        let ui = state.borrow();
+        (ui.window.upgrade(), ui.config.clone())
+    };
+    let Some(window) = window else { return };
+    let weak_state = Rc::downgrade(state);
+    settings::show(&window, &original, {
+        let original = original.clone();
+        move |draft| {
+            let Some(state) = weak_state.upgrade() else {
+                return Ok(());
+            };
+            draft.save_changes(&original)?;
+            let terminals = {
+                let mut ui = state.borrow_mut();
+                ui.config = draft.clone();
+                ui.tabs
+                    .iter()
+                    .map(|tab| tab.terminal.clone())
+                    .collect::<Vec<_>>()
+            };
+            update_appearance(&state);
+            for terminal in terminals {
+                apply_terminal_appearance(&terminal, &draft);
+            }
+            Ok(())
+        }
+    });
 }
 
 fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
@@ -230,8 +281,9 @@ fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
         #[weak]
         state,
         move |scale| {
+            let previous = state.borrow().config.clone();
             state.borrow_mut().config.opacity = scale.value() / 100.0;
-            save_appearance(&state);
+            save_appearance(&state, &previous);
             update_appearance(&state);
         }
     ));
@@ -242,22 +294,35 @@ fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
         slider,
         move |toggle| {
             let enabled = toggle.is_active();
+            let previous = state.borrow().config.clone();
             state.borrow_mut().config.blur = enabled;
             help.set_visible(enabled && !blur_supported);
             slider.set_sensitive(!enabled || blur_supported);
-            save_appearance(&state);
+            save_appearance(&state, &previous);
             update_appearance(&state);
         }
     ));
 
     body.append(&opacity_label);
     body.append(&slider);
+    let settings = Button::with_label("Settings…");
+    settings.connect_clicked(glib::clone!(
+        #[weak]
+        state,
+        #[weak]
+        popover,
+        move |_| {
+            popover.popdown();
+            open_settings(&state);
+        }
+    ));
+    body.append(&settings);
     popover.set_child(Some(&body));
     menu.set_popover(Some(&popover));
 }
 
-fn save_appearance(state: &Rc<RefCell<State>>) {
-    if let Err(err) = state.borrow().config.save() {
+fn save_appearance(state: &Rc<RefCell<State>>, previous: &Config) {
+    if let Err(err) = state.borrow().config.save_changes(previous) {
         eprintln!("Veyl: unable to save settings: {err}");
     }
 }

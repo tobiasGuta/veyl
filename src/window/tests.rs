@@ -105,7 +105,8 @@ fn check_terminal_programs(terminal: &Terminal) {
     if glib::find_program_in_path("vim").is_some() || glib::find_program_in_path("vi").is_some() {
         let fixture = PathBuf::from(std::env::var_os("HOME").unwrap()).join("veyl-qa-vim.txt");
         fs::write(&fixture, "alpha\nbeta\n").unwrap();
-        terminal.feed_child(b"editor=$(command -v vim || command -v vi); \"$editor\" -Nu NONE -i NONE -n -T vt100 +2 ~/veyl-qa-vim.txt\r");
+        // Clear any terminal-query replies left on the Bash input line by tmux.
+        terminal.feed_child(b"\x15editor=$(command -v vim || command -v vi); \"$editor\" -Nu NONE -i NONE -n -T vt100 +2 ~/veyl-qa-vim.txt\r");
         wait_for("Vim to show the fixture", || {
             terminal_text(terminal)
                 .contains("alpha\nbeta")
@@ -361,6 +362,109 @@ fn wayland_clipboard_actions() {
             .any(|line| line == "VEYL_PASTE=veyl-paste-test")
             .then_some(())
     });
+    drop(terminal);
+    window.close();
+}
+
+#[test]
+#[ignore = "requires a GNOME Wayland desktop and a fresh XDG_CONFIG_HOME"]
+fn wayland_appearance_settings() {
+    fn descendants(root: &gtk::Widget) -> Vec<gtk::Widget> {
+        let mut widgets = vec![root.clone()];
+        let mut child = root.first_child();
+        while let Some(widget) = child {
+            widgets.extend(descendants(&widget));
+            child = widget.next_sibling();
+        }
+        widgets
+    }
+
+    fn button(root: &gtk::Widget, label: &str) -> Button {
+        descendants(root)
+            .into_iter()
+            .filter_map(|widget| widget.downcast::<Button>().ok())
+            .find(|button| button.label().as_deref() == Some(label))
+            .unwrap()
+    }
+
+    let path = Config::path().unwrap();
+    let original = "# My settings\nfont_size = 14 # pt\nextra_option = true\n";
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(!path.exists(), "use a fresh test configuration directory");
+    fs::write(&path, original).unwrap();
+
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::load());
+    open_tab(&state);
+    window.present();
+    let terminal = active_terminal(&state).unwrap();
+    let shell = shell_process(&terminal);
+    let menu = descendants(window.upcast_ref())
+        .into_iter()
+        .find_map(|widget| widget.downcast::<MenuButton>().ok())
+        .unwrap();
+    let settings_button = button(menu.popover().unwrap().upcast_ref(), "Settings…");
+
+    for (action, expected) in [("Cancel", 14), ("Save", 18), ("Save", 12)] {
+        settings_button.emit_clicked();
+        let dialog = wait_for("settings window", || {
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .find_map(|widget| {
+                    widget.downcast::<gtk::Window>().ok().filter(|window| {
+                        window.is_visible() && window.title().as_deref() == Some("Veyl Settings")
+                    })
+                })
+        });
+        let widgets = descendants(dialog.upcast_ref());
+        let preview = widgets
+            .iter()
+            .find_map(|widget| widget.downcast_ref::<Terminal>())
+            .unwrap();
+        let fields = widgets
+            .iter()
+            .filter_map(|widget| widget.downcast_ref::<gtk::SpinButton>())
+            .collect::<Vec<_>>();
+        let cursor = widgets
+            .iter()
+            .find_map(|widget| widget.downcast_ref::<gtk::DropDown>())
+            .unwrap();
+        if expected == 12 {
+            button(dialog.upcast_ref(), "Reset to defaults").emit_clicked();
+            assert_eq!(preview.font().unwrap().size(), 12 * pango::SCALE);
+            assert_eq!(preview.cursor_shape(), vte4::CursorShape::Block);
+            assert_eq!(preview.margin_start(), 10);
+        } else {
+            fields[0].set_value(18.0);
+            fields[1].set_value(16.0);
+            cursor.set_selected(1);
+            assert_eq!(preview.font().unwrap().size(), 18 * pango::SCALE);
+            assert_eq!(preview.cursor_shape(), vte4::CursorShape::Ibeam);
+            assert_eq!(preview.margin_start(), 16);
+        }
+        assert!(preview.pty().is_none());
+        button(dialog.upcast_ref(), action).emit_clicked();
+        assert_eq!(terminal.font().unwrap().size(), expected * pango::SCALE);
+        assert!(shell.exists());
+        let saved = Config::load();
+        assert_eq!(saved.font_size, expected as u16);
+        assert_eq!(saved.padding_x, if expected == 18 { 16 } else { 10 });
+        assert_eq!(
+            terminal.cursor_shape(),
+            if expected == 18 {
+                vte4::CursorShape::Ibeam
+            } else {
+                vte4::CursorShape::Block
+            }
+        );
+        let contents = fs::read_to_string(&path).unwrap();
+        if action == "Cancel" {
+            assert_eq!(contents, original);
+        } else {
+            assert!(contents.contains(&format!("font_size = {expected} # pt")));
+            assert!(contents.contains("extra_option = true"));
+        }
+    }
     drop(terminal);
     window.close();
 }
