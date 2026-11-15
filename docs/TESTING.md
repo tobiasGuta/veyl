@@ -45,6 +45,8 @@ The same harness also runs these tests. Use a fresh test configuration directory
 
 Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display.
 
+Run `wayland_window_controls` with the same harness to check the three control widths, native maximize and restore, and window close. Compare idle, hover, and maximized glyphs visually at the target display scales.
+
 ## Manual GNOME Wayland checklist
 
 Record Fedora version, VTE/GTK versions, GNOME version, Wayland/X11 session, resolution, display scaling, font availability, and whether Blur My Shell is enabled.
