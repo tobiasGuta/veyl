@@ -12,7 +12,7 @@ cargo build
 Build prerequisites on Fedora 45:
 
 ~~~bash
-sudo dnf install rust cargo gcc pkgconf-pkg-config gtk4-devel vte291-gtk4-devel
+sudo dnf install rust cargo rustfmt clippy gcc pkgconf-pkg-config gtk4-devel vte291-gtk4-devel
 ~~~
 
 The GitHub Actions CI builds/tests within a Fedora 45 container. UI integration tests **cannot** be replaced by headless compilation.
@@ -33,8 +33,10 @@ Record Fedora version, VTE/GTK versions, GNOME version, Wayland/X11 session, res
 | Tabs | New, switch, close tabs repeatedly | Isolated sessions, right tab focused |
 | Multiple jobs | Run `sleep 120` in one tab and close it | Child/process behavior documented |
 | Clipboard | Select text, Ctrl+Shift+C/V | Copy/paste as expected |
-| Opacity | Drag 0.40→0.86→1.00 | Only background fades; text stays crisp |
-| Persistence | Set opacity, restart | Slider and appearance preserved |
+| Opacity | Drag 40%→72%→100% | Only background fades; text stays crisp |
+| Frosted background | Toggle on and off over a high-contrast backdrop with Blur My Shell disabled | Wayland blur smooths the backdrop in frosted mode; plain translucency shows its sharp edges |
+| Blur unavailable | Launch with `GDK_BACKEND=x11` if XWayland is available | Default background is solid, and turning off frosted mode enables the opacity slider |
+| Persistence | Change opacity and toggle frosted background, then restart | Both settings are preserved |
 | Config failure | Malformed TOML | Safe fallback plus clear error |
 | Keyboard | Ctrl+Shift+T/W/C/V | Appropriate action |
 | GNOME | Extensions off, Wayland session | App still usable |

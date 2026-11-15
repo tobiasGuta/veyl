@@ -10,37 +10,51 @@ Match the **appearance** of modern Windows Terminal (Windows 11 dark), not its A
 | --- | --- |
 | Terminal background | `#10121a` |
 | Terminal foreground | `#e8eaf0` |
-| Header overlay | `rgba(28,30,40,.95)` |
-| Active tab | subtle translucent gray `rgba(255,255,255,.12)` |
-| Idle tab | `rgba(255,255,255,.045)` |
+| Header overlay | Cool charcoal gradient |
+| Active tab | Dark tint `rgba(14,16,23,.70)` |
+| Idle tab | Clear until hovered |
 | Accent | pale cool blue (`#a9bfff`) |
-| Opacity | `0.86` (prefer 0.80–0.90 when legible) |
+| Opacity | `0.72` in frosted mode |
 | Default monospace | Cascadia Mono, 12 pt (font fallback allowed) |
-| Header height | around 44 CSS px |
-| Tab row | around 32 CSS px |
-| Terminal inset | around 10–12 CSS px |
+| Header height | 39 CSS px |
+| Tab row | 33 CSS px |
+| Terminal inset | 8 CSS px vertically, 10 horizontally |
+| Window radius | 8 CSS px when unmaximized |
 
 CSS pixels are not guaranteed physical pixels at fractional GNOME display scaling. Never use screenshot matching without recording scaling factor, font installation, theme, and system button placement.
 
 ## Fidelity levels
 
-1. **v0.1 (implemented intent):** header/tab design, custom dark palette, opacity control, per-user TOML. Standard GTK/Wayland window controls are deliberately retained. Reproducibility on real Fedora is pending verification.
+1. **v0.1:** compact left-aligned tabs, adjacent add and appearance controls, a dark palette, and live opacity and frosted background controls. GTK supplies the window controls and keeps native titlebar interactions.
 2. **v0.2:** visual regression references and a tunable design system for fonts, colors, density, padding, accent color and tab layout; user-selectable themes.
-3. **Experimental:** actual compositor background blur if a tested, supported mechanism exists. Windows Acrylic/Mica is **not** a standard GTK effect.
 
 ## GNOME Wayland transparency versus translucency
 
 - Alpha transparency blends the window surface with whatever is behind it.
-- A frosted translucent *blur* also samples/filters the background; GTK4 CSS cannot independently access other windows' pixels.
-- The Blur My Shell GNOME extension is **not** a Veyl dependency or a guaranteed API. Test on standard GNOME Wayland first. No private Mutter patches or screen capture shortcuts to simulate blur.
-- Avoid `GtkWidget.set_opacity` on the whole window: it dims glyphs and UI with the background. Instead alpha-blend only surfaces.
-- If background blur is unavailable, use a legible semi-transparent/opaque fallback and disclose it in the app/help.
+- GTK 4.24 forwards the window's backdrop filter to compositors that advertise `ext-background-effect-v1`. The compositor samples and blurs the backdrop. Veyl paints a dark alpha tint above it and keeps terminal glyphs opaque.
+- GNOME can provide blur directly through Mutter. Test with Blur My Shell disabled to isolate that path.
+- On an unsupported display or GTK version, frosted mode uses a solid background and explains the fallback in the appearance popover. Turn frosted mode off to adjust the background tint without blur.
+
+## Customizing the window chrome
+
+Set the terminal colors, font, blur and tint opacity in `veyl/config.toml` under your user configuration directory. For the chrome, GTK loads `$XDG_CONFIG_HOME/gtk-4.0/gtk.css` (usually `~/.config/gtk-4.0/gtk.css`). Scope overrides to `window.veyl-window`. See [the built-in stylesheet](../assets/veyl.css) for selectors covering tabs, frame, titlebar, terminal padding, and the appearance popover. For example, this sets a square frame and a larger terminal inset.
+
+```css
+window.veyl-window,
+window.veyl-window .veyl-header {
+  border-radius: 0;
+}
+
+window.veyl-window .veyl-terminal-surface {
+  padding: 12px 14px;
+}
+```
 
 ## UI acceptance checklist
 
 - No sidebar or dashboard in v0.1; shell takes most of the window.
 - Titlebar integrates active and inactive tabs, add and dropdown controls.
 - Tab selection and close affordances are clear with keyboard focus.
-- Colors remain readable at 40% / 86% / 100% background opacity.
+- Colors remain readable at 40% / 72% / 100% background opacity.
 - Check 100%, 125% and 150% GNOME scaling; 2+ tabs; long titles; very narrow window widths.
 - Do not embed Microsoft's logo/icons or license-unclear artwork.

@@ -7,7 +7,7 @@ All items are proposed, not promises or shipped features. Preserve scope discipl
 - One independent shell/PTY per tab.
 - Tabs (new/select/close) and baseline clipboard shortcuts.
 - Windows Terminal-inspired dark compact header/tab aesthetic.
-- Configurable background opacity without dimming text, font/colors via TOML.
+- Configurable frosted background and tint opacity without dimming text. Fonts and colors via TOML.
 - CI, docs, tests; runtime/visual/security validation outstanding.
 - Completion requires acceptance criteria in CODEX_HANDOFF.md.
 
@@ -25,7 +25,7 @@ All items are proposed, not promises or shipped features. Preserve scope discipl
 - Search, hyperlinks, terminal find, terminal title/profiles.
 
 ## Experimental / only after research
-- Native GNOME Wayland blur capability (no hacks or screen scraping).
+- Blur fidelity across compositors, themes and display scales.
 - Plugin architecture, developer panels, CTF project profiles.
 - Fedora RPM/desktop packaging; releases, signing and update strategy.
 - No AI-initiated shell execution without explicit human review.

@@ -6,7 +6,7 @@
 Gtk.Application (single application id)
   └─ Gtk.ApplicationWindow + Gtk.HeaderBar (custom CSS)
       ├─ tab bar: Gtk.Box containing selectable tab chips
-      ├─ appearance Gtk.Popover (opacity setting)
+      ├─ appearance Gtk.Popover (blur and opacity)
       └─ Gtk.Stack: one surface + Vte.Terminal per tab
                       │
                       └─ VTE PTY → $SHELL (or /bin/bash)
@@ -36,11 +36,10 @@ Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/co
 
 ## Rendering constraint
 
-GTK alpha-composited backgrounds are not equivalent to background blur. The source uses CSS background opacity, while VTE is told not to paint a solid background. Text remains opaque. On some compositor/theme combinations, actual transparency may differ; provide an opaque fallback and **test it**.
+The GTK window paints one background tint beneath the header and VTE. VTE skips clearing its default background, leaving glyphs and terminal color cells opaque. On GTK 4.24+ with `ext-background-effect-v1` advertised by the Wayland display, GTK sends the blur region for the window's backdrop filter to the compositor. When that path is unavailable, the default frosted setting uses an opaque tint. Plain background alpha is available by turning off frosted mode.
 
 ## Future abstraction boundaries
 
 - Extract TerminalSession from UI model before split panes.
 - Add shell/profile model only after lifecycle coverage.
-- Add a compositor-capability interface only after a proven Wayland integration path.
 - Unit test non-GUI configuration; use desktop integration testing for PTY/GTK behavior.

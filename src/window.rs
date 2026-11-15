@@ -1,12 +1,14 @@
 use crate::config::Config;
+use gdk4_wayland::WaylandDisplay;
+use gtk::accessible::{Property, State as AccessibleState};
 use gtk::gdk;
 use gtk::gio;
 use gtk::glib;
 use gtk::pango;
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Button, HeaderBar, Label, MenuButton,
-    Orientation, PolicyType, Popover, Scale, ScrolledWindow, Stack,
+    Application, ApplicationWindow, Box as GtkBox, Button, HeaderBar, Image, Label, MenuButton,
+    Orientation, PolicyType, Popover, Scale, ScrolledWindow, Stack, Switch, Viewport,
 };
 use std::cell::RefCell;
 use std::path::Path;
@@ -24,12 +26,14 @@ struct Tab {
 struct State {
     window: ApplicationWindow,
     tabs_bar: GtkBox,
+    tabs_viewport: Viewport,
     stack: Stack,
     tabs: Vec<Tab>,
     next_id: u64,
     active: Option<u64>,
     config: Config,
     appearance: gtk::CssProvider,
+    blur_supported: bool,
 }
 
 pub fn build(app: &Application) {
@@ -44,9 +48,14 @@ pub fn build(app: &Application) {
     window.add_css_class("veyl-window");
 
     let static_css = gtk::CssProvider::new();
-    static_css.load_from_data(include_str!("../assets/veyl.css"));
+    static_css.load_from_string(include_str!("../assets/veyl.css"));
     let appearance = gtk::CssProvider::new();
     let display = gtk::prelude::WidgetExt::display(&window);
+    // GTK 4.24 forwards a backdrop filter to the Wayland compositor when available.
+    let blur_supported = gtk::check_version(4, 24, 0).is_none()
+        && display
+            .downcast_ref::<WaylandDisplay>()
+            .is_some_and(|display| display.query_registry("ext_background_effect_manager_v1"));
     gtk::style_context_add_provider_for_display(
         &display,
         &static_css,
@@ -58,64 +67,66 @@ pub fn build(app: &Application) {
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
     );
 
-    let tabs_bar = GtkBox::new(Orientation::Horizontal, 4);
+    let tabs_bar = GtkBox::new(Orientation::Horizontal, 2);
     tabs_bar.add_css_class("veyl-tabs");
+    let tabs_viewport = Viewport::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    tabs_viewport.set_child(Some(&tabs_bar));
 
     let tabs_scroll = ScrolledWindow::new();
     tabs_scroll.set_policy(PolicyType::Automatic, PolicyType::Never);
-    tabs_scroll.set_hexpand(true);
-    tabs_scroll.set_min_content_width(180);
-    tabs_scroll.set_child(Some(&tabs_bar));
-
-    let heading = GtkBox::new(Orientation::Horizontal, 8);
-    heading.set_hexpand(true);
-    let logo = Label::new(Some("›_"));
-    logo.add_css_class("veyl-brand");
-    heading.append(&logo);
-    heading.append(&tabs_scroll);
+    tabs_scroll.set_hexpand(false);
+    tabs_scroll.set_min_content_width(100);
+    tabs_scroll.set_max_content_width(640);
+    tabs_scroll.set_propagate_natural_width(true);
+    tabs_scroll.set_child(Some(&tabs_viewport));
 
     let header = HeaderBar::new();
     header.add_css_class("veyl-header");
     header.set_decoration_layout(Some(":minimize,maximize,close"));
     header.set_show_title_buttons(true);
-    header.set_title_widget(Some(&heading));
+    header.set_title_widget(Some(&GtkBox::new(Orientation::Horizontal, 0)));
+
+    let controls = GtkBox::new(Orientation::Horizontal, 0);
+    controls.add_css_class("veyl-tab-controls");
+    controls.set_valign(gtk::Align::Center);
 
     let new_button = Button::from_icon_name("list-add-symbolic");
     new_button.set_tooltip_text(Some("New tab (Ctrl+Shift+T)"));
-    new_button.add_css_class("veyl-header-button");
-    header.pack_end(&new_button);
+    new_button.set_action_name(Some("win.new-tab"));
+    controls.append(&new_button);
 
     let menu = MenuButton::new();
     menu.set_icon_name("pan-down-symbolic");
     menu.set_tooltip_text(Some("Appearance"));
-    menu.add_css_class("veyl-header-button");
-    header.pack_end(&menu);
+    menu.update_property(&[Property::Label("Appearance")]);
+    controls.append(&menu);
+
+    let leading = GtkBox::new(Orientation::Horizontal, 4);
+    leading.append(&tabs_scroll);
+    leading.append(&controls);
+    header.pack_start(&leading);
 
     let stack = Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
-    stack.add_css_class("veyl-stack");
     window.set_titlebar(Some(&header));
     window.set_child(Some(&stack));
 
     let state = Rc::new(RefCell::new(State {
         window: window.clone(),
         tabs_bar,
+        tabs_viewport,
         stack,
         tabs: Vec::new(),
         next_id: 0,
         active: None,
         config,
         appearance,
+        blur_supported,
     }));
 
     update_appearance(&state);
     build_appearance_menu(&menu, &state);
-
-    {
-        let state = state.clone();
-        new_button.connect_clicked(move |_| open_tab(&state));
-    }
 
     install_actions(&window, app, &state);
     open_tab(&state);
@@ -126,25 +137,26 @@ fn update_appearance(state: &Rc<RefCell<State>>) {
     let current = state.borrow();
     let color = gdk::RGBA::parse(&current.config.background)
         .unwrap_or_else(|_| gdk::RGBA::new(0.063, 0.071, 0.102, 1.0));
-    let opacity = current.config.opacity;
+    let (opacity, blur) = current.config.background_style(current.blur_supported);
+    let backdrop_filter = if blur {
+        "backdrop-filter: blur(24px);"
+    } else {
+        ""
+    };
     let css = format!(
-        "window.veyl-window {{ background: transparent; }} \
-         .veyl-stack, .veyl-terminal-surface {{ \
-         background-color: rgba({},{},{},{:.3}); }}",
+        "window.veyl-window {{ background-color: rgba({},{},{},{:.3}); {backdrop_filter} }}",
         (color.red() * 255.0).round() as u8,
         (color.green() * 255.0).round() as u8,
         (color.blue() * 255.0).round() as u8,
         opacity,
     );
-    current.appearance.load_from_data(&css);
-    for tab in &current.tabs {
-        apply_terminal_settings(&tab.terminal, &current.config);
-    }
+    current.appearance.load_from_string(&css);
 }
 
 fn apply_terminal_settings(terminal: &Terminal, config: &Config) {
     let fallback = gdk::RGBA::new(0.91, 0.92, 0.94, 1.0);
-    let foreground = gdk::RGBA::parse(&config.foreground).unwrap_or(fallback);
+    let mut foreground = gdk::RGBA::parse(&config.foreground).unwrap_or(fallback);
+    foreground.set_alpha(1.0);
     terminal.set_color_foreground(&foreground);
     terminal.set_clear_background(false);
     terminal.set_scrollback_lines(config.scrollback_lines);
@@ -157,44 +169,76 @@ fn apply_terminal_settings(terminal: &Terminal, config: &Config) {
 
 fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
     let popover = Popover::new();
+    popover.add_css_class("veyl-appearance");
+    popover.set_has_arrow(false);
     let body = GtkBox::new(Orientation::Vertical, 12);
-    body.set_margin_top(16);
-    body.set_margin_bottom(16);
-    body.set_margin_start(18);
-    body.set_margin_end(18);
-    body.set_size_request(230, -1);
 
-    let title = Label::new(Some("Background opacity"));
-    title.set_halign(gtk::Align::Start);
-    let help = Label::new(Some("Blur depends on GNOME compositor support."));
+    let blur_row = GtkBox::new(Orientation::Horizontal, 16);
+    let blur_label = Label::new(Some("Frosted background"));
+    blur_label.set_xalign(0.0);
+    blur_label.set_hexpand(true);
+    let blur_switch = Switch::new();
+    blur_switch.update_property(&[Property::Label("Frosted background")]);
+    blur_row.append(&blur_label);
+    blur_row.append(&blur_switch);
+    body.append(&blur_row);
+
+    let (blur_supported, blur, opacity) = {
+        let ui = state.borrow();
+        (ui.blur_supported, ui.config.blur, ui.config.opacity)
+    };
+    blur_switch.set_active(blur);
+    let help = Label::new(Some(
+        "Blur is unavailable. Turn it off to use transparency.",
+    ));
     help.set_wrap(true);
+    help.set_max_width_chars(30);
+    help.set_xalign(0.0);
     help.add_css_class("veyl-hint");
-    help.set_halign(gtk::Align::Start);
+    help.set_visible(blur && !blur_supported);
+    body.append(&help);
 
-    let slider = Scale::with_range(Orientation::Horizontal, 0.4, 1.0, 0.05);
+    let opacity_label = Label::new(Some("Background opacity"));
+    opacity_label.set_xalign(0.0);
+    let slider = Scale::with_range(Orientation::Horizontal, 40.0, 100.0, 1.0);
+    slider.update_property(&[Property::Label("Background opacity")]);
     slider.set_draw_value(true);
-    slider.set_digits(2);
-    slider.set_value(state.borrow().config.opacity);
+    slider.set_value_pos(gtk::PositionType::Right);
+    slider.set_digits(0);
+    slider.set_format_value_func(|_, value| format!("{value:.0}%"));
+    slider.set_value(opacity * 100.0);
+    slider.set_sensitive(!blur || blur_supported);
     {
         let state = state.clone();
         slider.connect_value_changed(move |scale| {
-            {
-                let mut ui = state.borrow_mut();
-                ui.config.opacity = scale.value();
-                ui.config.normalize();
-                if let Err(err) = ui.config.save() {
-                    eprintln!("Veyl: unable to save settings: {err}");
-                }
-            }
+            state.borrow_mut().config.opacity = scale.value() / 100.0;
+            save_appearance(&state);
+            update_appearance(&state);
+        });
+    }
+    {
+        let state = state.clone();
+        let slider = slider.clone();
+        blur_switch.connect_active_notify(move |toggle| {
+            let enabled = toggle.is_active();
+            state.borrow_mut().config.blur = enabled;
+            help.set_visible(enabled && !blur_supported);
+            slider.set_sensitive(!enabled || blur_supported);
+            save_appearance(&state);
             update_appearance(&state);
         });
     }
 
-    body.append(&title);
+    body.append(&opacity_label);
     body.append(&slider);
-    body.append(&help);
     popover.set_child(Some(&body));
     menu.set_popover(Some(&popover));
+}
+
+fn save_appearance(state: &Rc<RefCell<State>>) {
+    if let Err(err) = state.borrow().config.save() {
+        eprintln!("Veyl: unable to save settings: {err}");
+    }
 }
 
 fn shell_path() -> String {
@@ -226,13 +270,30 @@ fn open_tab(state: &Rc<RefCell<State>>) {
     let chip = GtkBox::new(Orientation::Horizontal, 0);
     chip.add_css_class("veyl-tab");
 
-    let select = Button::with_label(&format!("Terminal {id}"));
+    let shell = shell_path();
+    let title = Path::new(&shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Terminal");
+    let label = Label::new(Some(title));
+    label.set_ellipsize(pango::EllipsizeMode::End);
+    label.set_max_width_chars(18);
+    label.set_xalign(0.0);
+    let icon = Image::from_icon_name("utilities-terminal-symbolic");
+    icon.set_pixel_size(14);
+    let tab_title = GtkBox::new(Orientation::Horizontal, 8);
+    tab_title.append(&icon);
+    tab_title.append(&label);
+    let select = Button::new();
+    select.set_child(Some(&tab_title));
     select.add_css_class("veyl-tab-select");
-    select.set_tooltip_text(Some("Activate tab"));
+    select.set_tooltip_text(Some(title));
+    select.update_property(&[Property::Label(&format!("Tab {id}, {title}"))]);
 
     let close = Button::from_icon_name("window-close-symbolic");
     close.add_css_class("veyl-tab-close");
     close.set_tooltip_text(Some("Close tab"));
+    close.update_property(&[Property::Label(&format!("Close tab {id}, {title}"))]);
 
     chip.append(&select);
     chip.append(&close);
@@ -264,7 +325,6 @@ fn open_tab(state: &Rc<RefCell<State>>) {
         terminal.connect_child_exited(move |_, _status| close_tab(&state, id));
     }
 
-    let shell = shell_path();
     let shell_for_error = shell.clone();
     let home = std::env::var("HOME").ok();
     terminal.spawn_async(
@@ -286,25 +346,48 @@ fn open_tab(state: &Rc<RefCell<State>>) {
 
 fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
     let mut ui = state.borrow_mut();
-    if !ui.tabs.iter().any(|tab| tab.id == id) {
+    let Some(selected) = ui.tabs.iter().find(|tab| tab.id == id) else {
         return;
-    }
+    };
+    let chip = selected.chip.downgrade();
+    let terminal = selected.terminal.clone();
     ui.active = Some(id);
     ui.stack.set_visible_child_name(&format!("tab-{id}"));
     for tab in &ui.tabs {
-        if tab.id == id {
+        let active = tab.id == id;
+        let pressed = if active {
+            gtk::AccessibleTristate::True
+        } else {
+            gtk::AccessibleTristate::False
+        };
+        tab.select
+            .update_state(&[AccessibleState::Pressed(pressed)]);
+        if active {
             tab.chip.add_css_class("active");
-            tab.select.add_css_class("active");
         } else {
             tab.chip.remove_css_class("active");
-            tab.select.remove_css_class("active");
         }
     }
-    let focused = ui.tabs.iter().find(|tab| tab.id == id).map(|tab| tab.terminal.clone());
+    let state = Rc::downgrade(state);
+    ui.tabs_viewport.add_tick_callback(move |viewport, _| {
+        let Some(chip) = chip.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        if !state
+            .upgrade()
+            .is_some_and(|ui| ui.borrow().active == Some(id))
+        {
+            return glib::ControlFlow::Break;
+        }
+        // Newly appended tabs need their first layout before they have scroll bounds.
+        if chip.width() == 0 {
+            return glib::ControlFlow::Continue;
+        }
+        viewport.scroll_to(&chip, None);
+        glib::ControlFlow::Break
+    });
     drop(ui);
-    if let Some(terminal) = focused {
-        terminal.grab_focus();
-    }
+    terminal.grab_focus();
 }
 
 fn close_tab(state: &Rc<RefCell<State>>, id: u64) {

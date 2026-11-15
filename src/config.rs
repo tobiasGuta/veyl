@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct Config {
     pub opacity: f64,
+    pub blur: bool,
     pub font_family: String,
     pub font_size: u16,
     pub scrollback_lines: i64,
@@ -17,7 +18,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            opacity: 0.86,
+            opacity: 0.72,
+            blur: true,
             font_family: "Cascadia Mono".to_owned(),
             font_size: 12,
             scrollback_lines: 10_000,
@@ -28,6 +30,14 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn background_style(&self, blur_supported: bool) -> (f64, bool) {
+        match (self.blur, blur_supported) {
+            (true, false) => (1.0, false),
+            (true, true) => (self.opacity, self.opacity < 1.0),
+            (false, _) => (self.opacity, false),
+        }
+    }
+
     pub fn normalize(&mut self) {
         if !self.opacity.is_finite() {
             self.opacity = Self::default().opacity;
@@ -64,7 +74,10 @@ impl Config {
             },
             Err(err) if err.kind() == io::ErrorKind::NotFound => Self::default(),
             Err(err) => {
-                eprintln!("Veyl: unable to read {}: {err}; using defaults", path.display());
+                eprintln!(
+                    "Veyl: unable to read {}: {err}; using defaults",
+                    path.display()
+                );
                 Self::default()
             }
         };
@@ -74,7 +87,9 @@ impl Config {
 
     pub fn save(&self) -> io::Result<()> {
         let path = Self::path().ok_or_else(|| io::Error::other("no user config directory"))?;
-        let parent = path.parent().ok_or_else(|| io::Error::other("invalid config path"))?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid config path"))?;
         fs::create_dir_all(parent)?;
         let content = toml::to_string_pretty(self).map_err(io::Error::other)?;
         // Do not log contents or terminal output. Atomically replace settings on save.
@@ -121,5 +136,19 @@ mod tests {
         let content = "opacity = 0.75\nfuture_option = true\n";
         let config: Config = toml::from_str(content).expect("config should parse");
         assert_eq!(config.opacity, 0.75);
+        assert!(config.blur);
+    }
+
+    #[test]
+    fn background_style_respects_capability_and_user_preference() {
+        let mut config = Config::default();
+        assert_eq!(config.background_style(true), (config.opacity, true));
+        assert_eq!(config.background_style(false), (1.0, false));
+        config.blur = false;
+        assert_eq!(config.background_style(false), (config.opacity, false));
+        assert_eq!(config.background_style(true), (config.opacity, false));
+        config.blur = true;
+        config.opacity = 1.0;
+        assert_eq!(config.background_style(true), (1.0, false));
     }
 }

@@ -2,7 +2,7 @@
 
 **Veyl** is an early-stage, Fedora-native terminal emulator with a visual direction inspired by **Windows Terminal on Windows 11**: compact integrated tabs, a dark Fluent-like surface, and subtle translucency.
 
-> **Status:** v0.1 development foundation; not a production-ready daily-driver, and not yet verified on a real Fedora 45 GNOME Wayland desktop. Real background blur is **not implemented**. See [STATUS.md](docs/STATUS.md).
+> **Status:** v0.1 development foundation. See [verification status](docs/STATUS.md) for desktop coverage and remaining release gates.
 
 ## Quick start — Fedora 45
 
@@ -29,7 +29,7 @@ If the application fails to compile, please report the exact `cargo build` outpu
 - Rust + GTK4 application with custom dark header, integrated selectable tabs, new/close tab buttons and Wayland-friendly GTK window management.
 - VTE terminal widget per tab, launching the `$SHELL` executable (or `/bin/bash` fallback), with regular shell environment inheritance.
 - Windows Terminal-inspired styling in [assets/veyl.css](assets/veyl.css).
-- Appearance popover with a per-user **background opacity** slider. The configuration is saved at `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
+- Appearance popover with **Frosted background** and **Background opacity** controls. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
 - Configurable font, font size, foreground/background colors, and scrollback via TOML.
 - Clipboard shortcuts and basic tab shortcuts.
 - No telemetry, command-history collection, AI execution, or remote service integration.
@@ -47,16 +47,17 @@ If the application fails to compile, please report the exact `cargo build` outpu
 
 ## Appearance and transparency
 
-The initial target is *subtle translucency*, not full see-through transparency. The initial opacity is **0.86**, editable from the dropdown. Veyl uses a semi-transparent GTK background while keeping text opaque; it deliberately does **not** lower the opacity of the entire window.
+The arrow beside **+** opens appearance settings. The default frosted background uses a **72%** dark tint over native compositor blur. The **Background opacity** slider changes the tint while keeping terminal text fully opaque.
 
-**Acrylic/Mica-style background blur is not part of v0.1.** GNOME Wayland does not expose the same compositor API as Windows. Blur My Shell or other extensions may affect window blur depending on versions and settings, but Veyl must neither require extensions nor claim an exact effect without testing. See [Visual spec](docs/VISUAL_SPEC.md).
+Frosted mode uses GTK 4.24 and the Wayland `ext-background-effect-v1` protocol. Veyl uses a solid dark background when this path is unavailable. Turn **Frosted background** off to use plain translucency, or set opacity to **100%** for a solid background. See the [visual spec](docs/VISUAL_SPEC.md).
 
 ## Configuration
 
 Example `~/.config/veyl/config.toml`:
 
 ~~~toml
-opacity = 0.86
+opacity = 0.72
+blur = true
 font_family = "Cascadia Mono"
 font_size = 12
 scrollback_lines = 10000
@@ -64,7 +65,7 @@ background = "#10121a"
 foreground = "#e8eaf0"
 ~~~
 
-Create the file manually to override defaults; opening the opacity slider and changing it also creates the file. Other settings take effect at application launch, with live opacity updates only in v0.1. Invalid configuration falls back to defaults, with a message on stderr.
+Create the file manually to override defaults. Changing an appearance control also creates the file. Blur and opacity update live, and the other TOML settings take effect at launch. Invalid configuration falls back to defaults with a message on stderr. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
 
 ## For Codex contributors
 

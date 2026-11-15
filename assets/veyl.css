@@ -1,84 +1,158 @@
-/* Veyl v0.1: inspired by Windows Terminal's dark, compact Fluent styling.
-   Not a Microsoft theme or use of Microsoft trademarks/assets. */
-
 window.veyl-window {
-  color: #e8eaf0;
+  color: #f2f3f7;
+  background: #10121a;
+  border: 1px solid rgba(212, 216, 240, 0.24);
+  border-radius: 8px;
+}
+
+window.veyl-window:backdrop {
+  border-color: rgba(212, 216, 240, 0.13);
+}
+
+window.veyl-window.maximized,
+window.veyl-window.fullscreen {
+  border-radius: 0;
+  border-color: transparent;
 }
 
 .veyl-header {
-  min-height: 44px;
-  background-color: rgba(28, 30, 40, 0.95);
-  border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  min-height: 39px;
+  padding: 0 2px 0 7px;
+  border: 0;
+  border-radius: 7px 7px 0 0;
+  background: linear-gradient(to bottom, rgba(73, 73, 84, 0.62), rgba(49, 49, 58, 0.46));
   box-shadow: none;
 }
 
-.veyl-brand {
-  color: #a9bfff;
-  font-size: 18px;
-  font-weight: 700;
-  min-width: 34px;
+window.veyl-window.maximized .veyl-header {
+  border-radius: 0;
 }
 
 .veyl-tabs {
-  margin-top: 4px;
-  margin-bottom: 0;
+  margin-top: 6px;
 }
 
 .veyl-tab {
-  min-height: 32px;
-  background-color: rgba(255, 255, 255, 0.045);
-  border-radius: 7px 7px 0 0;
-  border: 1px solid transparent;
+  min-height: 33px;
+  border-radius: 6px 6px 0 0;
+  color: #d2d4dc;
+}
+
+.veyl-tab:hover {
+  background-color: rgba(255, 255, 255, 0.065);
 }
 
 .veyl-tab.active {
-  background-color: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.09);
-  border-bottom-color: transparent;
+  background-color: rgba(14, 16, 23, 0.70);
+  color: #fff;
 }
 
 .veyl-tab-select,
 .veyl-tab-close,
-.veyl-header-button {
+.veyl-tab-controls button,
+.veyl-header windowcontrols button {
   background: transparent;
-  color: #dce0eb;
-  border: none;
+  color: inherit;
+  border: 0;
   box-shadow: none;
-  min-height: 30px;
-  padding: 0 9px;
-  border-radius: 6px;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 4px;
 }
 
 .veyl-tab-select {
-  min-width: 102px;
-  font-size: 12px;
+  min-width: 136px;
+  padding: 0 8px 0 10px;
+  font-size: 13px;
+}
+
+.veyl-tab.active .veyl-tab-select {
+  font-weight: 600;
 }
 
 .veyl-tab-close {
-  min-width: 24px;
-  padding: 0 5px;
+  min-width: 23px;
+  margin: 4px 4px 4px 0;
+  -gtk-icon-size: 12px;
 }
 
-.veyl-tab-select:hover,
-.veyl-tab-close:hover,
-.veyl-header-button:hover {
-  background-color: rgba(255, 255, 255, 0.10);
+.veyl-tab-controls {
+  color: #f2f3f7;
+  background-color: rgba(20, 21, 28, 0.28);
+  border-radius: 4px;
 }
 
-.veyl-stack {
+.veyl-tab-controls button {
+  min-width: 28px;
+  min-height: 27px;
+  -gtk-icon-size: 14px;
+}
+
+.veyl-tab-controls menubutton button {
+  min-width: 25px;
+  border-left: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0 4px 4px 0;
+}
+
+.veyl-header windowcontrols {
+  color: #f2f3f7;
   padding: 0;
+  border-spacing: 1px;
+}
+
+.veyl-header windowcontrols button {
+  min-width: 36px;
+  min-height: 32px;
+  -gtk-icon-size: 12px;
+}
+
+.veyl-tab-close:hover,
+.veyl-tab-controls button:hover,
+.veyl-tab-controls button:checked,
+.veyl-header windowcontrols button:hover {
+  background-color: rgba(255, 255, 255, 0.13);
+}
+
+.veyl-header windowcontrols button.close:hover {
+  background-color: #b32638;
+  color: #fff;
+}
+
+.veyl-tab-select:focus-visible,
+.veyl-tab-close:focus-visible,
+.veyl-tab-controls button:focus-visible,
+.veyl-header windowcontrols button:focus-visible {
+  outline: 2px solid #a9bfff;
+  outline-offset: -2px;
 }
 
 .veyl-terminal-surface {
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .veyl-terminal {
   background-color: transparent;
 }
 
+.veyl-appearance > contents {
+  background: #22232b;
+  color: #f2f3f7;
+  border: 1px solid rgba(212, 216, 240, 0.20);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.veyl-appearance scale {
+  padding: 0 4px;
+}
+
+.veyl-appearance scale value {
+  font-variant-numeric: tabular-nums;
+  color: #d2d4dc;
+}
+
 .veyl-hint {
-  opacity: 0.7;
-  font-size: 11px;
+  color: #d2d4dc;
+  font-size: 12px;
 }
