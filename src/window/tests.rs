@@ -820,3 +820,53 @@ fn wayland_shortcut_editor() {
     );
     window.close();
 }
+
+#[test]
+#[ignore = "requires a GNOME Wayland desktop and an isolated Bash HOME"]
+fn wayland_window_controls() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    wait_for("window to map", || window.is_mapped().then_some(()));
+
+    let controls = descendants(window.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::WindowControls>().ok())
+        .find(|controls| !controls.is_empty())
+        .unwrap();
+    let buttons = descendants(controls.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<Button>().ok())
+        .collect::<Vec<_>>();
+    let names = ["minimize", "maximize", "close"];
+    assert_eq!(buttons.len(), names.len());
+    for (button, name) in buttons.iter().zip(names) {
+        assert!(button.has_css_class(name));
+        let (width, _, _, _) = button.measure(Orientation::Horizontal, -1);
+        assert_eq!(width, 28);
+    }
+
+    buttons[1].emit_clicked();
+    wait_for("native maximize action", || {
+        window.is_maximized().then_some(())
+    });
+    let restore = descendants(controls.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<Button>().ok())
+        .find(|button| button.has_css_class("maximize"))
+        .unwrap();
+    restore.emit_clicked();
+    wait_for("native restore action", || {
+        (!window.is_maximized()).then_some(())
+    });
+
+    let close = descendants(controls.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<Button>().ok())
+        .find(|button| button.has_css_class("close"))
+        .unwrap();
+    close.emit_clicked();
+    assert!(app.windows().is_empty());
+    assert!(state.borrow().tabs.is_empty());
+}

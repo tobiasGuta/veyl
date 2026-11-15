@@ -96,15 +96,69 @@ window.veyl-window.maximized .veyl-header {
 }
 
 .veyl-header windowcontrols {
-  color: #f2f3f7;
-  padding: 0;
-  border-spacing: 1px;
+  color: #dce5ef;
+  padding: 0 3px 0 0;
+  margin: 0;
+  border-spacing: 0;
+}
+
+window.veyl-window:backdrop .veyl-header windowcontrols {
+  color: #abb7c5;
 }
 
 .veyl-header windowcontrols button {
-  min-width: 36px;
-  min-height: 32px;
+  min-width: 28px;
+  min-height: 26px;
+  margin: 4px 0;
+  border-radius: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Draw the glyphs independently of the desktop icon theme. GTK owns the buttons. */
+.veyl-header windowcontrols button image {
+  opacity: 0;
+  min-width: 0;
+  min-height: 0;
   -gtk-icon-size: 12px;
+}
+
+.veyl-header windowcontrols button.minimize {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 7px 1px;
+}
+
+.veyl-header windowcontrols button.maximize {
+  background-image: linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor);
+  background-size: 7px 1px, 7px 1px, 1px 7px, 1px 7px;
+  background-position: center calc(50% - 3px), center calc(50% + 3px),
+                       calc(50% - 3px) center, calc(50% + 3px) center;
+}
+
+window.veyl-window.maximized .veyl-header windowcontrols button.maximize {
+  background-image: linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor),
+                    linear-gradient(currentColor, currentColor);
+  background-size: 5px 1px, 5px 1px, 1px 5px, 1px 5px,
+                   5px 1px, 1px 5px, 1px 2px, 2px 1px;
+  background-position: calc(50% - 1px) calc(50% - 1px), calc(50% - 1px) calc(50% + 3px),
+                       calc(50% - 3px) calc(50% + 1px), calc(50% + 1px) calc(50% + 1px),
+                       calc(50% + 1px) calc(50% - 3px), calc(50% + 3px) calc(50% - 1px),
+                       calc(50% - 1px) calc(50% - 2px), calc(50% + 2px) calc(50% + 1px);
+}
+
+.veyl-header windowcontrols button.close {
+  background-image: linear-gradient(45deg, transparent 44%, currentColor 44% 56%, transparent 56%),
+                    linear-gradient(135deg, transparent 44%, currentColor 44% 56%, transparent 56%);
+  background-size: 7px 7px;
 }
 
 .veyl-tab-close:hover,
@@ -112,6 +166,10 @@ window.veyl-window.maximized .veyl-header {
 .veyl-tab-controls button:checked,
 .veyl-header windowcontrols button:hover {
   background-color: rgba(255, 255, 255, 0.13);
+}
+
+.veyl-header windowcontrols button:active {
+  background-color: rgba(255, 255, 255, 0.19);
 }
 
 .veyl-header windowcontrols button.close:hover {

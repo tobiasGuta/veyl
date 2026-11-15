@@ -1,5 +1,9 @@
 # Verification status
 
+## Window controls follow-up
+
+On Fedora 45 GNOME Wayland, the `wayland_window_controls` test verified the 28 CSS px control widths and native maximize, restore, and close actions with fatal GTK warnings enabled. GTK still sent a native blur region with Blur My Shell temporarily disabled. Visual comparison at fractional scales remains open.
+
 ## Terminal productivity follow-up
 
 Fedora 45 GNOME Wayland regression tests covered literal and case-sensitive scrollback search, per-pane queries, same-folder duplication, model and widget tab order, shortcut conflicts and persistence, named profile launch, rendered ANSI colors, progress states, nested splits, directional focus, and cleanup on pane and window close. A separate headless GNOME Wayland session verified that copy and paste target the focused split and leave the other shell and its output intact. The tab, appearance, and lifecycle regressions also ran on this branch. The Wayland trace showed Mutter receiving a native blur region with Blur My Shell disabled. Physical drag and drop, keyboard dispatch, and visual contrast remain for desktop verification.

@@ -17,6 +17,7 @@ Match the **appearance** of modern Windows Terminal (Windows 11 dark), not its A
 | Opacity | `0.72` in frosted mode |
 | Default monospace | Cascadia Mono, 12 pt (font fallback allowed) |
 | Header height | 39 CSS px |
+| Window controls | 28 CSS px wide, flat hover, 7 CSS px line glyphs |
 | Tab row | 33 CSS px |
 | Terminal inset | 8 CSS px vertically, 10 horizontally |
 | Window radius | 8 CSS px when unmaximized |
@@ -27,6 +28,8 @@ CSS pixels are not guaranteed physical pixels at fractional GNOME display scalin
 
 1. **v0.1:** compact left-aligned tabs, adjacent add and appearance controls, a dark palette, and live opacity and frosted background controls. GTK supplies the window controls and keeps native titlebar interactions.
 2. **v0.2:** visual regression references and a tunable design system for fonts, colors, density, padding, accent color and tab layout; user-selectable themes.
+
+Veyl draws the window-control glyphs with the titlebar stylesheet. The maximize glyph changes from a square to overlapping squares when the window is maximized. GTK supplies the button actions and accessible labels.
 
 ## GNOME Wayland transparency versus translucency
 
