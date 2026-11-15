@@ -37,6 +37,14 @@ Run the command with `wayland_appearance_settings` and a fresh `XDG_CONFIG_HOME`
 
 Run the same command with `wayland_tab_interactions` to test ordered tab cycling, menu actions on a background tab, rename and reset, tab color rules, and shell cleanup when a tab closes with its menu open. For manual coverage, right-click an inactive tab, use Shift+F10 on a focused tab, choose a light and a dark tab color, then press Ctrl+Tab and Ctrl+Shift+Tab at the ends of the strip.
 
+The same harness also runs these tests. Use a fresh test configuration directory for each run.
+
+- `wayland_search_and_tab_organization` covers literal search in long scrollback, two independent search fields, focus restoration, same-folder duplication, and consistency between model and widget tab order.
+- `wayland_profiles_splits_and_progress` covers a named project profile, rendered ANSI colors, progress updates and reset, nested splits, directional focus, and shell cleanup after pane and window close.
+- `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
+
+Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display.
+
 ## Manual GNOME Wayland checklist
 
 Record Fedora version, VTE/GTK versions, GNOME version, Wayland/X11 session, resolution, display scaling, font availability, and whether Blur My Shell is enabled.

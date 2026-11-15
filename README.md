@@ -39,13 +39,23 @@ If Veyl cannot start the shell, the affected tab shows the error and can be clos
 | Shortcut | Intended action |
 | --- | --- |
 | Ctrl+Shift+T | New tab |
-| Ctrl+Shift+W | Close active tab |
+| Ctrl+Shift+W | Close the focused pane, or the tab when it has one pane |
 | Ctrl+Shift+C | Copy selection |
 | Ctrl+Shift+V | Paste clipboard |
 | Ctrl+Tab | Select the next tab, wrapping at the end |
 | Ctrl+Shift+Tab | Select the previous tab, wrapping at the start |
+| Ctrl+Shift+F | Find in the focused terminal |
+| Ctrl+Shift+D | Start a new shell in the current terminal's folder |
+| Alt+Shift+Plus / Minus | Split right / down |
+| Alt+Arrow | Focus a neighboring pane in a split tab |
 
-Right-click a tab to rename it, choose or reset its color, or close it. With keyboard focus on a tab, **Shift+F10** or the **Menu** key opens the same menu. Clear the name in the rename dialog to restore the shell name. Tab names and colors apply for the lifetime of that tab.
+Right-click a tab to rename it, choose or reset its color, move it, duplicate it, or close it. Drag a tab title onto the left or right half of another tab to reorder it. With keyboard focus on a tab, **Shift+F10** or the **Menu** key opens the same menu. Clear the name in the rename dialog to restore the default name. Tab names and colors apply for the lifetime of that tab.
+
+**Find in terminal** searches the focused pane's visible text and scrollback. Toggle **Aa** for case matching, use the arrows or Enter to move through matches, and press **Esc** to return to the terminal. Its query stays with the pane until you close it.
+
+**Duplicate tab**, **Split right**, and **Split down** start a fresh shell using the focused pane's profile and local folder. Veyl uses the shell's directory report when available and can read a local shell's current directory on Linux. If the report points to a remote or missing folder, Veyl uses the original starting folder. The tab's **×** closes all its panes.
+
+Open **Keyboard shortcuts…** from the arrow beside **+** to change or clear bindings. Veyl shows an error when two app actions use the same shortcut. The menu also lists launch profiles and split commands.
 
 **Caution:** Closing a tab can terminate or disconnect interactive programs. Do not test with unsaved work.
 
@@ -54,6 +64,8 @@ Right-click a tab to rename it, choose or reset its color, or close it. With key
 The arrow beside **+** opens quick controls for frosted background and opacity. The default frosted background uses a **72%** dark tint over native compositor blur. The **Background opacity** slider changes the tint while keeping terminal text fully opaque.
 
 Choose **Settings…** in the same menu to change the font, font size, text color, background tint, cursor shape, and horizontal and vertical terminal padding. The sample terminal previews changes as you edit. **Save** applies them to the current window and its open tabs. **Cancel** discards the draft. **Reset to defaults** restores the fields in the editor so you can preview the defaults before saving.
+
+**Color scheme** sets the 16 ANSI colors plus the optional cursor and selection colors. **Midnight** and **Warm dusk** are built in. Programs that report progress with a VTE-supported sequence show a progress line under the tab title for the selected pane within that tab. Toggle **Show tab progress** in Settings to hide it.
 
 Frosted mode uses GTK 4.24 and the Wayland `ext-background-effect-v1` protocol. Veyl uses a solid dark background when this path is unavailable. Turn **Frosted background** off to use plain translucency, or set opacity to **100%** for a solid background. See the [visual spec](docs/VISUAL_SPEC.md).
 
@@ -73,6 +85,38 @@ cursor_shape = "block"
 padding_x = 10
 padding_y = 8
 ~~~
+
+Add profiles and reusable color schemes to the same file. Put root settings before the table headings. Existing tab titles and colors are session settings. Profile edits apply to newly opened tabs after relaunch.
+
+~~~toml
+default_profile = "Projects"
+color_scheme = "Midnight"
+tab_progress = true
+
+[profiles.Bash]
+shell = "/bin/bash"
+
+[profiles.Projects]
+shell = "/bin/bash"
+directory = "~/Projects"
+tab_name = "Project shell"
+color_scheme = "Workshop"
+
+[schemes.Workshop]
+ansi = [
+  "#161924", "#f17883", "#91d7a2", "#dfc27a",
+  "#81aaff", "#c8a1ed", "#7dcedb", "#dae2f2",
+  "#777f99", "#ff9da6", "#aae9b2", "#f5d995",
+  "#a9c5ff", "#dfbaff", "#a3e2ef", "#ffffff",
+]
+cursor = "#b8cdff"
+selection = "#3d5180"
+
+[shortcuts]
+find = ["<Primary><Shift>f"]
+~~~
+
+An omitted shell uses your login shell setting. Use an absolute executable path and an absolute directory or one starting with `~/`. A scheme's `ansi` array is ordered from black through white, then bright black through bright white. Set a shortcut list to `[]` to unbind it. Leave `default_profile` empty to launch your ordinary shell from **+**.
 
 Create the file manually to override defaults. Saving an appearance change also creates the file. Veyl preserves comments and unrelated keys when saving. Manual edits take effect at launch. Invalid TOML falls back to defaults at launch and must be corrected before Veyl can save to that file. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
 

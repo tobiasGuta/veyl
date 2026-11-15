@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -15,6 +16,22 @@ pub enum CursorShape {
     Underline,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Profile {
+    pub shell: Option<String>,
+    pub directory: Option<PathBuf>,
+    pub tab_name: Option<String>,
+    pub color_scheme: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ColorScheme {
+    pub ansi: [String; 16],
+    pub cursor: Option<String>,
+    pub selection: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -28,6 +45,12 @@ pub struct Config {
     pub cursor_shape: CursorShape,
     pub padding_x: u16,
     pub padding_y: u16,
+    pub color_scheme: String,
+    pub schemes: BTreeMap<String, ColorScheme>,
+    pub default_profile: String,
+    pub profiles: BTreeMap<String, Profile>,
+    pub shortcuts: BTreeMap<String, Vec<String>>,
+    pub tab_progress: bool,
 }
 
 impl Default for Config {
@@ -43,6 +66,18 @@ impl Default for Config {
             cursor_shape: CursorShape::Block,
             padding_x: 10,
             padding_y: 8,
+            color_scheme: String::new(),
+            schemes: BTreeMap::new(),
+            default_profile: String::new(),
+            profiles: BTreeMap::from([(
+                "Bash".into(),
+                Profile {
+                    shell: Some("/bin/bash".into()),
+                    ..Profile::default()
+                },
+            )]),
+            shortcuts: BTreeMap::new(),
+            tab_progress: true,
         }
     }
 }
@@ -136,26 +171,60 @@ impl Config {
             .map_err(io::Error::other)?
             .parse::<toml_edit::DocumentMut>()
             .map_err(io::Error::other)?;
-        for (key, value) in &current {
-            if previous.get(key) == Some(value) {
-                continue;
-            }
-            let mut value = rendered[key]
-                .as_value()
-                .expect("settings are scalar")
-                .clone();
-            if let Some(existing) = document.get_mut(key) {
-                if let Some(original) = existing.as_value() {
-                    *value.decor_mut() = original.decor().clone();
-                }
-                *existing = toml_edit::Item::Value(value);
-            } else {
-                document.insert(key, toml_edit::Item::Value(value));
-            }
-        }
+        merge_table(
+            document.as_table_mut(),
+            rendered.as_table(),
+            &previous,
+            &current,
+        );
         let content = document.to_string();
         toml::from_str::<Self>(&content).map_err(io::Error::other)?;
         Ok(content)
+    }
+}
+
+fn merge_table(
+    document: &mut dyn toml_edit::TableLike,
+    rendered: &dyn toml_edit::TableLike,
+    previous: &toml::Table,
+    current: &toml::Table,
+) {
+    for key in previous.keys() {
+        if !current.contains_key(key) {
+            document.remove(key);
+        }
+    }
+    for (key, value) in current {
+        let old = previous.get(key);
+        if old == Some(value) {
+            continue;
+        }
+        let item = rendered.get(key).expect("serialized config field");
+        if let Some(existing) = document.get_mut(key) {
+            if let (Some(table), Some(rendered), Some(value)) = (
+                existing.as_table_like_mut(),
+                item.as_table_like(),
+                value.as_table(),
+            ) {
+                let empty = toml::Table::new();
+                merge_table(
+                    table,
+                    rendered,
+                    old.and_then(toml::Value::as_table).unwrap_or(&empty),
+                    value,
+                );
+            } else {
+                let mut replacement = item.clone();
+                if let (Some(value), Some(original)) =
+                    (replacement.as_value_mut(), existing.as_value())
+                {
+                    *value.decor_mut() = original.decor().clone();
+                }
+                *existing = replacement;
+            }
+        } else {
+            document.insert(key, item.clone());
+        }
     }
 }
 
@@ -244,6 +313,24 @@ mod tests {
         assert_eq!(saved.padding_x, 14);
         assert_eq!(saved.opacity, 0.95);
         assert!(draft.update_document(&previous, "font_size = [").is_err());
+    }
+
+    #[test]
+    fn shortcut_edits_keep_profile_and_unrelated_override_comments() {
+        let source = "[shortcuts]\ncopy = [\"<Primary><Shift>c\"] # clipboard\nfuture = [] # leave it\n[profiles.Projects]\ndirectory = \"~/Projects\" # workspace\n";
+        let previous: Config = toml::from_str(source).unwrap();
+        let mut edited = previous.clone();
+        edited
+            .shortcuts
+            .insert("copy".into(), vec!["<Primary><Shift>y".into()]);
+        let output = edited.update_document(&previous, source).unwrap();
+        assert!(output.contains("# clipboard"));
+        assert!(output.contains("future = [] # leave it"));
+        assert!(output.contains("directory = \"~/Projects\" # workspace"));
+        assert_eq!(
+            toml::from_str::<Config>(&output).unwrap().shortcuts["copy"],
+            vec!["<Primary><Shift>y"]
+        );
     }
 
     #[test]

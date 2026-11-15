@@ -1,5 +1,9 @@
 # Verification status
 
+## Terminal productivity follow-up
+
+Fedora 45 GNOME Wayland regression tests covered literal and case-sensitive scrollback search, per-pane queries, same-folder duplication, model and widget tab order, shortcut conflicts and persistence, named profile launch, rendered ANSI colors, progress states, nested splits, directional focus, and cleanup on pane and window close. A separate headless GNOME Wayland session verified that copy and paste target the focused split and leave the other shell and its output intact. The tab, appearance, and lifecycle regressions also ran on this branch. The Wayland trace showed Mutter receiving a native blur region with Blur My Shell disabled. Physical drag and drop, keyboard dispatch, and visual contrast remain for desktop verification.
+
 ## Tab interactions follow-up
 
 On Fedora 45 GNOME Wayland, `cargo test --locked wayland_tab_interactions -- --ignored --nocapture` passed with `G_DEBUG=fatal-criticals` and Blur My Shell disabled. The test exercised menu mapping, renaming and resetting a background tab, color styling and reset, forward and backward wraparound, and closing a tab with its menu open. The existing shell stayed alive through renaming and terminated on close. The Wayland trace still showed GTK submitting a native blur region. Physical pointer and keyboard gestures, color-picker interaction, and visual contrast remain for manual review.

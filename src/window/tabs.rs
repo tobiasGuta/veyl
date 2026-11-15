@@ -1,7 +1,7 @@
-use super::{activate_tab, close_tab, update_appearance, State};
+use super::{activate_tab, close_tab, open_tab_with_launch, update_appearance, State};
 use gtk::accessible::Property;
 use gtk::prelude::*;
-use gtk::{gdk, gio, glib, Application, ApplicationWindow, Button, PopoverMenu};
+use gtk::{gdk, gio, glib, ApplicationWindow, Button, PopoverMenu};
 use std::cell::RefCell;
 use std::fmt::Write;
 use std::rc::Rc;
@@ -12,6 +12,9 @@ pub(super) fn context_menu(tab: &Button, id: u64) -> PopoverMenu {
         ("Rename tab…", "win.rename-tab"),
         ("Tab color…", "win.tab-color"),
         ("Reset tab color", "win.reset-tab-color"),
+        ("Move left", "win.move-tab-left"),
+        ("Move right", "win.move-tab-right"),
+        ("Duplicate tab", "win.duplicate-tab-at"),
         ("Close tab", "win.close-tab-at"),
     ] {
         let item = gio::MenuItem::new(Some(label), None);
@@ -60,16 +63,15 @@ pub(super) fn context_menu(tab: &Button, id: u64) -> PopoverMenu {
     menu
 }
 
-pub(super) fn install_actions(
-    window: &ApplicationWindow,
-    app: &Application,
-    state: &Rc<RefCell<State>>,
-) {
+pub(super) fn install_actions(window: &ApplicationWindow, state: &Rc<RefCell<State>>) {
     type TabAction = fn(&Rc<RefCell<State>>, u64);
-    let actions: [(&str, TabAction); 4] = [
+    let actions: [(&str, TabAction); 7] = [
         ("rename-tab", open_rename),
         ("tab-color", choose_color),
         ("reset-tab-color", |state, id| set_color(state, id, None)),
+        ("move-tab-left", |state, id| move_adjacent(state, id, false)),
+        ("move-tab-right", |state, id| move_adjacent(state, id, true)),
+        ("duplicate-tab-at", duplicate),
         ("close-tab-at", close_tab),
     ];
     for (name, callback) in actions {
@@ -86,10 +88,20 @@ pub(super) fn install_actions(
         window.add_action(&action);
     }
 
-    for (name, shortcut, forward) in [
-        ("next-tab", "<Primary>Tab", true),
-        ("previous-tab", "<Primary><Shift>Tab", false),
-    ] {
+    let duplicate_action = gio::SimpleAction::new("duplicate-tab", None);
+    duplicate_action.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            let active = state.borrow().active;
+            if let Some(id) = active {
+                duplicate(&state, id);
+            }
+        }
+    ));
+    window.add_action(&duplicate_action);
+
+    for (name, forward) in [("next-tab", true), ("previous-tab", false)] {
         let action = gio::SimpleAction::new(name, None);
         action.connect_activate(glib::clone!(
             #[weak]
@@ -99,7 +111,6 @@ pub(super) fn install_actions(
             }
         ));
         window.add_action(&action);
-        app.set_accels_for_action(&format!("win.{name}"), &[shortcut]);
     }
 }
 
@@ -277,4 +288,123 @@ pub(super) fn append_color_rules(css: &mut String, state: &State) {
             .expect("writing CSS to a String");
         }
     }
+}
+
+pub(super) fn enable_reorder(
+    state: &Rc<RefCell<State>>,
+    chip: &gtk::Box,
+    select: &Button,
+    id: u64,
+) {
+    let source = gtk::DragSource::new();
+    source.set_actions(gdk::DragAction::MOVE);
+    source.connect_prepare(glib::clone!(
+        #[weak]
+        select,
+        #[upgrade_or]
+        None,
+        move |_, _, _| Some(gdk::ContentProvider::for_value(&select.to_value()))
+    ));
+    source.connect_drag_begin(glib::clone!(
+        #[weak]
+        select,
+        move |source, _| {
+            let icon = gtk::WidgetPaintable::new(Some(&select));
+            source.set_icon(Some(&icon), select.width() / 2, select.height() / 2);
+        }
+    ));
+    select.add_controller(source);
+
+    let target = gtk::DropTarget::new(Button::static_type(), gdk::DragAction::MOVE);
+    target.connect_drop(glib::clone!(
+        #[weak]
+        state,
+        #[weak]
+        chip,
+        #[upgrade_or]
+        false,
+        move |_, value, x, _| {
+            let Ok(source) = value.get::<Button>() else {
+                return false;
+            };
+            let after = (x >= f64::from(chip.width()) / 2.0)
+                ^ (chip.direction() == gtk::TextDirection::Rtl);
+            drop_tab(&state, &source, id, after)
+        }
+    ));
+    chip.add_controller(target);
+}
+
+pub(super) fn drop_tab(
+    state: &Rc<RefCell<State>>,
+    source: &Button,
+    target: u64,
+    after: bool,
+) -> bool {
+    let destination = {
+        let ui = state.borrow();
+        let Some(from) = ui.tabs.iter().position(|tab| tab.select == *source) else {
+            return false;
+        };
+        let Some(to) = ui.tabs.iter().position(|tab| tab.id == target) else {
+            return false;
+        };
+        if from == to {
+            return false;
+        }
+        let boundary = to + usize::from(after);
+        (ui.tabs[from].id, boundary - usize::from(from < boundary))
+    };
+    move_to(state, destination.0, destination.1)
+}
+
+fn move_adjacent(state: &Rc<RefCell<State>>, id: u64, right: bool) {
+    let destination = {
+        let ui = state.borrow();
+        let Some(index) = ui.tabs.iter().position(|tab| tab.id == id) else {
+            return;
+        };
+        let forward = right ^ (ui.tabs_bar.direction() == gtk::TextDirection::Rtl);
+        if forward {
+            index.checked_add(1)
+        } else {
+            index.checked_sub(1)
+        }
+    };
+    if let Some(index) = destination {
+        move_to(state, id, index);
+    }
+}
+
+fn move_to(state: &Rc<RefCell<State>>, id: u64, index: usize) -> bool {
+    let (bar, chip, sibling) = {
+        let mut ui = state.borrow_mut();
+        let Some(old_index) = ui.tabs.iter().position(|tab| tab.id == id) else {
+            return false;
+        };
+        if index >= ui.tabs.len() || index == old_index {
+            return false;
+        }
+        let tab = ui.tabs.remove(old_index);
+        let chip = tab.chip.clone();
+        ui.tabs.insert(index, tab);
+        let sibling = index
+            .checked_sub(1)
+            .map(|index| ui.tabs[index].chip.clone());
+        (ui.tabs_bar.clone(), chip, sibling)
+    };
+    bar.reorder_child_after(&chip, sibling.as_ref());
+    true
+}
+
+fn duplicate(state: &Rc<RefCell<State>>, id: u64) {
+    let launch = {
+        let ui = state.borrow();
+        let Some(tab) = ui.tabs.iter().find(|tab| tab.id == id) else {
+            return;
+        };
+        let pane = tab.active_pane();
+        pane.launch.duplicate(&pane.terminal, pane.pid)
+    };
+    open_tab_with_launch(state, launch);
 }

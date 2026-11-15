@@ -19,10 +19,10 @@ All items are proposed, not promises or shipped features. Preserve scope discipl
 - Optional themes and keyboard command palette, scoped separately.
 
 ## v0.3 — Productivity
-- Split panes and per-pane PTY management.
+- Split panes and per-pane PTY management are implemented in the productivity branch, with physical input and visual checks pending.
 - SSH profiles using normal OpenSSH agent and config.
 - Workspace layouts, restore *paths and profiles*, not imaginary live processes.
-- Search, hyperlinks, terminal find, terminal title/profiles.
+- The productivity branch adds scrollback search and local launch profiles. Hyperlinks and automatic terminal titles remain future work.
 
 ## Experimental / only after research
 - Blur fidelity across compositors, themes and display scales.
