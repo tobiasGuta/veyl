@@ -35,6 +35,8 @@ Run the same command with `wayland_clipboard_actions` in an isolated Wayland ses
 
 Run the command with `wayland_appearance_settings` and a fresh `XDG_CONFIG_HOME` to test the Settings entry, font preview, Cancel, Save, Reset to defaults, and TOML comment preservation.
 
+Run the same command with `wayland_tab_interactions` to test ordered tab cycling, menu actions on a background tab, rename and reset, tab color rules, and shell cleanup when a tab closes with its menu open. For manual coverage, right-click an inactive tab, use Shift+F10 on a focused tab, choose a light and a dark tab color, then press Ctrl+Tab and Ctrl+Shift+Tab at the ends of the strip.
+
 ## Manual GNOME Wayland checklist
 
 Record Fedora version, VTE/GTK versions, GNOME version, Wayland/X11 session, resolution, display scaling, font availability, and whether Blur My Shell is enabled.

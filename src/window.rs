@@ -1,4 +1,5 @@
 mod settings;
+mod tabs;
 
 use crate::config::{Config, CursorShape};
 use gdk4_wayland::WaylandDisplay;
@@ -24,6 +25,11 @@ struct Tab {
     surface: GtkBox,
     chip: GtkBox,
     select: Button,
+    close: Button,
+    label: Label,
+    default_title: String,
+    color: Option<gdk::RGBA>,
+    menu: gtk::PopoverMenu,
     spawn: gio::Cancellable,
 }
 
@@ -165,7 +171,7 @@ fn update_appearance(state: &Rc<RefCell<State>>) {
         ""
     };
     let class = &current.appearance_class;
-    let css = format!(
+    let mut css = format!(
         "window.{class} {{ background-color: rgba({},{},{},{:.3}); {backdrop_filter} }} \
          window.{class} .veyl-terminal-surface {{ padding: {}px {}px; }}",
         (color.red() * 255.0).round() as u8,
@@ -175,6 +181,7 @@ fn update_appearance(state: &Rc<RefCell<State>>) {
         current.config.padding_y,
         current.config.padding_x,
     );
+    tabs::append_color_rules(&mut css, &current);
     let appearance = current.appearance.clone();
     drop(current);
     appearance.load_from_string(&css);
@@ -369,6 +376,7 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
 
     let chip = GtkBox::new(Orientation::Horizontal, 0);
     chip.add_css_class("veyl-tab");
+    chip.add_css_class(&format!("veyl-tab-{id}"));
 
     let title = Path::new(shell)
         .file_name()
@@ -408,6 +416,7 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
         move |_| close_tab(&state, id)
     ));
 
+    let menu = tabs::context_menu(&select, id);
     let spawn = gio::Cancellable::new();
     state.borrow_mut().tabs.push(Tab {
         id,
@@ -415,6 +424,11 @@ fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&st
         surface: surface.clone(),
         chip: chip.clone(),
         select,
+        close,
+        label,
+        default_title: title.to_owned(),
+        color: None,
+        menu,
         spawn: spawn.clone(),
     });
     stack.add_child(&surface);
@@ -540,7 +554,11 @@ fn close_tab(state: &Rc<RefCell<State>>, id: u64) {
         };
         (tab, next, window, ui.tabs_bar.clone(), ui.stack.clone())
     };
+    let had_color = tab.color.is_some();
     detach_tab(tab, &tabs_bar, &stack);
+    if had_color {
+        update_appearance(state);
+    }
     if let Some(window) = window {
         window.close();
     } else if let Some(id) = next {
@@ -566,6 +584,8 @@ fn close_all_tabs(state: &Rc<RefCell<State>>) {
 
 fn detach_tab(tab: Tab, tabs_bar: &GtkBox, stack: &Stack) {
     tab.spawn.cancel();
+    tab.menu.popdown();
+    tab.menu.unparent();
     // Let VTE dispose the terminal, signal its child, and release the PTY.
     tabs_bar.remove(&tab.chip);
     stack.remove(&tab.surface);
@@ -625,6 +645,7 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
     ));
     window.add_action(&paste);
 
+    tabs::install_actions(window, app, state);
     app.set_accels_for_action("win.new-tab", &["<Primary><Shift>t"]);
     app.set_accels_for_action("win.close-tab", &["<Primary><Shift>w"]);
     app.set_accels_for_action("win.copy", &["<Primary><Shift>c"]);

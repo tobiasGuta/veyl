@@ -42,6 +42,10 @@ If Veyl cannot start the shell, the affected tab shows the error and can be clos
 | Ctrl+Shift+W | Close active tab |
 | Ctrl+Shift+C | Copy selection |
 | Ctrl+Shift+V | Paste clipboard |
+| Ctrl+Tab | Select the next tab, wrapping at the end |
+| Ctrl+Shift+Tab | Select the previous tab, wrapping at the start |
+
+Right-click a tab to rename it, choose or reset its color, or close it. With keyboard focus on a tab, **Shift+F10** or the **Menu** key opens the same menu. Clear the name in the rename dialog to restore the shell name. Tab names and colors apply for the lifetime of that tab.
 
 **Caution:** Closing a tab can terminate or disconnect interactive programs. Do not test with unsaved work.
 

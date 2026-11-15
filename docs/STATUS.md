@@ -1,5 +1,9 @@
 # Verification status
 
+## Tab interactions follow-up
+
+On Fedora 45 GNOME Wayland, `cargo test --locked wayland_tab_interactions -- --ignored --nocapture` passed with `G_DEBUG=fatal-criticals` and Blur My Shell disabled. The test exercised menu mapping, renaming and resetting a background tab, color styling and reset, forward and backward wraparound, and closing a tab with its menu open. The existing shell stayed alive through renaming and terminated on close. The Wayland trace still showed GTK submitting a native blur region. Physical pointer and keyboard gestures, color-picker interaction, and visual contrast remain for manual review.
+
 ## Appearance Settings follow-up
 
 On Fedora 45 GNOME Wayland, `cargo test --locked wayland_appearance_settings -- --ignored --nocapture` passed with a fresh config directory and `G_DEBUG=fatal-criticals`. The test exercised the Settings entry, live font, cursor, and padding preview, Cancel, Save, and Reset to defaults. The original Bash process remained active, and TOML comments and unrelated keys survived saving. Native picker interaction and visual preview fidelity still need manual review.
