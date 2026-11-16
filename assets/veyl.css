@@ -402,3 +402,7 @@ window.veyl-window.maximized .veyl-header windowcontrols button.maximize {
   outline: 1px solid rgba(169, 191, 255, 0.42);
   outline-offset: -1px;
 }
+
+.veyl-palette-list row {
+  padding: 8px 10px;
+}

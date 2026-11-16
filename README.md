@@ -62,6 +62,8 @@ install -Dm644 "resources/icons/hicolor/scalable/apps/$icon" \
 | Alt+Shift+Plus / Minus | Split right / down |
 | Alt+Arrow | Focus a neighboring pane in a split tab |
 
+Open **Command Palette…** from the arrow beside **+**, or press **Ctrl+Shift+P**. Search across Veyl actions and launch profiles, use the arrow keys to select a result, and press Enter to run it. Results show the shortcuts currently assigned in Settings.
+
 Right-click a tab to rename it, choose or reset its color, move it, duplicate it, or close it. Drag a tab title onto the left or right half of another tab to reorder it. With keyboard focus on a tab, **Shift+F10** or the **Menu** key opens the same menu. Clear the name in the rename dialog to restore the default name. Tab names and colors apply for the lifetime of that tab.
 
 **Find in terminal** searches the focused pane's visible text and scrollback. Toggle **Aa** for case matching, use the arrows or Enter to move through matches, and press **Esc** to return to the terminal. Its query stays with the pane until you close it.

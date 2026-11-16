@@ -4,7 +4,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib};
 use std::collections::{BTreeMap, HashMap};
 
-const ACTIONS: &[(&str, &str, &str)] = &[
+pub(super) const ACTIONS: &[(&str, &str, &str)] = &[
     ("new-tab", "New tab", "<Primary><Shift>t"),
     ("close-tab", "Close active terminal", "<Primary><Shift>w"),
     ("copy", "Copy", "<Primary><Shift>c"),
@@ -19,6 +19,8 @@ const ACTIONS: &[(&str, &str, &str)] = &[
     ("focus-pane-right", "Focus pane to the right", "<Alt>Right"),
     ("focus-pane-up", "Focus pane above", "<Alt>Up"),
     ("focus-pane-down", "Focus pane below", "<Alt>Down"),
+    ("settings", "Settings", "<Primary>comma"),
+    ("command-palette", "Command Palette", "<Primary><Shift>p"),
 ];
 
 fn defaults() -> BTreeMap<String, Vec<String>> {

@@ -1091,3 +1091,63 @@ fn wayland_bash_prompt() {
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_command_palette() {
+    let app = test_application();
+    let mut config = Config::default();
+    config
+        .shortcuts
+        .insert("find".into(), vec!["<Primary><Shift>y".into()]);
+    let (window, state) = create_window(&app, config);
+    open_tab(&state);
+    window.present();
+
+    for (query, expected) in [
+        ("in terminal find", "Find in terminal"),
+        ("bash", "Open profile: Bash"),
+        ("settings", "Settings"),
+    ] {
+        activate(&window, "command-palette");
+        let dialog = wait_for("palette", || {
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .find_map(|widget| {
+                    widget.downcast::<gtk::Window>().ok().filter(|window| {
+                        window.is_visible() && window.title().as_deref() == Some("Command Palette")
+                    })
+                })
+        });
+        let widgets = descendants(dialog.upcast_ref());
+        let search = widgets
+            .iter()
+            .find_map(|widget| widget.downcast_ref::<gtk::SearchEntry>())
+            .unwrap();
+        let list = widgets
+            .iter()
+            .find_map(|widget| widget.downcast_ref::<gtk::ListBox>())
+            .unwrap();
+        search.set_text("no such action or profile");
+        wait_for("empty palette results", || {
+            list.selected_row().is_none().then_some(())
+        });
+        search.set_text(query);
+        let row = wait_for("filtered action selected", || list.selected_row());
+        let labels = descendants(row.upcast_ref())
+            .into_iter()
+            .filter_map(|widget| widget.downcast::<Label>().ok())
+            .map(|label| label.text().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(labels[0], expected);
+        if query == "in terminal find" {
+            let (key, modifiers) = gtk::accelerator_parse("<Primary><Shift>y").unwrap();
+            assert_eq!(labels[1], gtk::accelerator_get_label(key, modifiers));
+        }
+        search.emit_by_name::<()>("activate", &[]);
+        assert!(!dialog.is_visible());
+    }
+    assert_eq!(state.borrow().tabs.len(), 2);
+    assert!(state.borrow().settings.is_some());
+    window.close();
+}
