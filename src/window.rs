@@ -1,5 +1,6 @@
 mod palette;
 mod panes;
+mod paste;
 mod search;
 mod settings;
 mod shortcuts;
@@ -960,7 +961,8 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
         state,
         move |_, _| {
             if let Some(terminal) = active_terminal(&state) {
-                terminal.paste_clipboard();
+                let confirm = state.borrow().config.confirm_multiline_paste;
+                paste::from_clipboard(&terminal, confirm);
             }
         }
     ));

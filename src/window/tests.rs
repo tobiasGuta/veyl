@@ -1199,3 +1199,38 @@ fn wayland_config_recovery() {
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_multiline_paste_preview() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    let terminal = active_terminal(&state).unwrap();
+    shell_process(&terminal);
+    terminal.feed_child(b"bind 'set enable-bracketed-paste off'\r");
+
+    for (action, marker) in [("Cancel", "cancelled"), ("Paste", "accepted")] {
+        let text = format!("printf '%s-%s\\n' TEST {marker}\n\n");
+        paste::paste_text(&terminal, text.into());
+        let dialog = wait_for("paste confirmation", || {
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .find_map(|widget| {
+                    widget
+                        .downcast::<gtk::Window>()
+                        .ok()
+                        .filter(|window| window.is_visible() && window.is_modal())
+                })
+        });
+        button(dialog.upcast_ref(), action).emit_clicked();
+    }
+    wait_for("confirmed clipboard text written to PTY", || {
+        terminal_text(&terminal)
+            .contains("TEST-accepted")
+            .then_some(())
+    });
+    assert!(!terminal_text(&terminal).contains("TEST-cancelled"));
+    window.close();
+}

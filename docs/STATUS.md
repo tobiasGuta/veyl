@@ -1,5 +1,9 @@
 # Verification status
 
+## Multiline paste
+
+The Fedora 45 GNOME Wayland test confirmed that canceling keeps synthetic multiline text out of Bash and confirmation delivers it. The preview applies to Veyl's Paste action. Physical clipboard gestures and foreground-job close confirmation remain open.
+
 ## Settings recovery
 
 The Fedora 45 GNOME Wayland test launched with malformed TOML, found the error and Open config file action, and confirmed defaults and preservation of the original TOML. Launching an external text editor remains for manual verification.
