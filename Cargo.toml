@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A Fedora-native terminal with a Windows Terminal-inspired dark interface"
 repository = "https://github.com/tobiasGuta/veyl"
+license = "MIT"
 publish = false
 
 [dependencies]

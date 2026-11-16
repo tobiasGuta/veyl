@@ -165,4 +165,4 @@ Create the file manually to override defaults. Saving an appearance change also 
 
 Veyl is an independent Linux project, not affiliated with Microsoft. “Windows Terminal”, “Fluent”, “Acrylic”, and “Mica” refer to external design inspiration and platform features, not Microsoft code or bundled graphics. Do not import Microsoft branding, proprietary assets, or copyrighted screenshots into the app.
 
-No license has been selected by the repository owner yet. Do not infer permission to relicense the project; resolve that decision before publishing binary releases.
+Veyl is licensed under the [MIT License](LICENSE).
