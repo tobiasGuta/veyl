@@ -11,6 +11,59 @@ const HOOK: &str = r#"if ! declare -F __veyl_set_prompt >/dev/null; then
 fi
 "#;
 
+const SMART: &str = include_str!("../assets/smart-prompt.bash");
+
+pub const SMART_SEGMENTS: [(&str, &str); 7] = [
+    ("Full path", r" \[\e[94m\]${PWD}\[\e[0m\]"),
+    (
+        "Git branch and status",
+        r"\[\e[93m\]$(__veyl_smart_git)\[\e[0m\]",
+    ),
+    (
+        "Python virtual environment",
+        r"\[\e[92m\]${VIRTUAL_ENV:+ [py:${VIRTUAL_ENV##*/}]}\[\e[0m\]",
+    ),
+    ("Exit status", r"\[\e[91m\]${__veyl_smart_exit-}\[\e[0m\]"),
+    ("Command duration", r"${__veyl_smart_duration-}"),
+    (
+        "SSH hostname",
+        r"\[\e[35m\]${SSH_CONNECTION:+ [ssh:${HOSTNAME%%.*}]}\[\e[0m\]",
+    ),
+    (
+        "Root indicator",
+        r"\[$__veyl_smart_mark_color\]$__veyl_smart_mark\[\e[0m\]",
+    ),
+];
+
+pub fn smart_prompt(enabled: &[bool; 7]) -> String {
+    let mut prompt = r"\[\e[1;36m\]PS\[\e[0m\]".to_owned();
+    for ((_, segment), enabled) in SMART_SEGMENTS[..6].iter().zip(enabled) {
+        if *enabled {
+            prompt.push_str(segment);
+        }
+    }
+    prompt.push(' ');
+    prompt.push_str(if enabled[6] { SMART_SEGMENTS[6].1 } else { ">" });
+    prompt.push_str(r"\040");
+    prompt
+}
+
+pub fn preview_template(text: &str) -> String {
+    let mut sample = text.replace(r"\[\e[1;36m\]PS\[\e[0m\]", "PS");
+    for ((_, segment), rendering) in SMART_SEGMENTS.iter().zip([
+        " ~/Projects",
+        " [git:main* ↑1]",
+        " [py:.venv]",
+        " [exit:1]",
+        " [2.4s]",
+        " [ssh:fedora]",
+        ">",
+    ]) {
+        sample = sample.replace(segment, rendering);
+    }
+    sample.replace(r"\040", " ")
+}
+
 pub fn startup_file() -> io::Result<PathBuf> {
     let path = crate::config::Config::path()
         .ok_or_else(|| io::Error::other("no user config directory"))?
@@ -23,6 +76,10 @@ if [[ -r ~/.bashrc ]]; then
 fi
 __veyl_prompt=$__veyl_local_prompt
 unset __veyl_local_prompt
+if [[ $__veyl_prompt == *'__veyl_smart_'* ]]; then
+{SMART}
+    __veyl_smart_install
+fi
 {HOOK}"#
     );
     crate::config::write_settings(&path, &script, 0o600)?;
@@ -98,8 +155,13 @@ fn edit_bashrc(original: &str, prompt: Option<&str>) -> io::Result<String> {
                     _ => quoted.push(ch),
                 }
             }
+            let smart = if value.contains("__veyl_smart_") {
+                format!("{SMART}\n__veyl_smart_install\n")
+            } else {
+                String::new()
+            };
             format!(
-                "\n{BEGIN}\nif [[ $- == *i* ]]; then\n__veyl_prompt=$'{quoted}'\n{HOOK}fi\n{END}\n"
+                "\n{BEGIN}\nif [[ $- == *i* ]]; then\n__veyl_prompt=$'{quoted}'\n{smart}{HOOK}fi\n{END}\n"
             )
         }
         None => String::new(),

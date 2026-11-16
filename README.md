@@ -99,6 +99,8 @@ Under **Settings → Shell prompt**, start with a preset or enter your own Bash 
 
 **Save** stores the prompt for new Bash tabs and panes in Veyl. Choose **Shell default** or clear the editor to restore the prompt your shell already defines. The setting applies to Bash profiles and takes effect when a new shell starts.
 
+Expand **Smart Bash prompt**, choose the segments you want, and select **Insert smart prompt** to put the colored prompt in the editable text field. It can show the full path, Git branch and status, Python virtual environment, exit status, command duration, SSH host, and a root marker. Timing requires Bash 5.3 or newer. Veyl loads the helper with the prompt for new Bash sessions.
+
 **Apply to .bashrc…** writes the current editor text to a marked block after confirmation, independently of **Save**. It affects new Bash sessions that read your `.bashrc`, including those in other terminal apps. Use **Remove Veyl prompt from .bashrc…** to remove only that block.
 
 ## Configuration

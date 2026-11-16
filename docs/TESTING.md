@@ -48,6 +48,7 @@ The same harness also runs these tests. Use a fresh test configuration directory
 - `wayland_command_palette` checks search, empty results, custom shortcut labels, and action and profile activation.
 - `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
 
+- `wayland_smart_prompt` checks preset selection, a disabled Git segment, saved prompt, exit status, and command timing in Bash 5.3 without a .bashrc.
 - `wayland_bash_prompt` requires an empty isolated Bash home. It exercises local prompt persistence, a theme that sets PS1 from a hook, the original Bash aliases, and the cancel, apply, and remove actions for the isolated `.bashrc`.
 
 Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display. In Settings, check sidebar navigation, menu row visibility, and the fixed footer at narrow window sizes and fractional scaling.

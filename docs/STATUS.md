@@ -1,5 +1,9 @@
 # Verification status
 
+## Smart Bash prompt
+
+The Fedora 45 GNOME Wayland test confirmed that the editor honors a disabled segment and that new Bash 5.3 tabs show the saved prompt, command failure status, and elapsed time without a separate .bashrc helper. The existing prompt and managed .bashrc regression passed. Physical UI review and the complete matrix of prompt indicators remain open.
+
 ## Profile editor
 
 The Fedora 45 GNOME Wayland test confirmed profile creation, duplication, renaming, default selection across rename, preservation of unknown profile fields and comments, and launch from the updated menu. Mouse and keyboard navigation remain for manual review.

@@ -1340,3 +1340,55 @@ fn wayland_profile_editor() {
     assert_eq!(state.borrow().tabs.len(), 2);
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland, Bash 5.3, and an isolated home"]
+fn wayland_smart_prompt() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    open_settings(&state, "prompt");
+    let (surface, page) = {
+        let ui = state.borrow();
+        let workspace = &ui.settings.as_ref().unwrap().workspace;
+        (
+            workspace.surface.clone(),
+            workspace.pages.visible_child().unwrap(),
+        )
+    };
+    let smart = descendants(&page)
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::Expander>().ok())
+        .unwrap();
+    smart.set_expanded(true);
+    for toggle in descendants(&page)
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::CheckButton>().ok())
+    {
+        if toggle.label().as_deref() == Some("Git branch and status") {
+            toggle.set_active(false);
+        }
+    }
+    button(&page, "Insert smart prompt").emit_clicked();
+    button(surface.upcast_ref(), "Save").emit_clicked();
+    let saved = Config::load().unwrap().bash_prompt.unwrap();
+    assert!(saved.contains("${PWD}") && !saved.contains("__veyl_smart_git"));
+    assert!(!crate::prompt::bashrc().unwrap().exists());
+    open_tab(&state);
+    let terminal = active_terminal(&state).unwrap();
+    wait_for("smart prompt", || {
+        terminal_text(&terminal).contains("PS /").then_some(())
+    });
+    terminal.feed_child(b"false\r");
+    wait_for("nonzero exit indicator", || {
+        terminal_text(&terminal).contains("[exit:1]").then_some(())
+    });
+    terminal.feed_child(b"sleep 1.2\r");
+    wait_for("elapsed duration", || {
+        (2..=9)
+            .any(|tenth| terminal_text(&terminal).contains(&format!("[1.{tenth}s]")))
+            .then_some(())
+    });
+    window.close();
+}
