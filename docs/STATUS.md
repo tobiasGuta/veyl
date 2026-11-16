@@ -1,10 +1,12 @@
 # Verification status
 
+## Settings tab redesign
+
+On Fedora 45 GNOME Wayland with Blur My Shell disabled, the Settings, shortcut editor, tab menu, tab interaction, and profile/split integration tests passed with fatal GTK criticals enabled. The Settings test checks switching away and back, discarding and saving drafts, and keeping the workspace open when the last shell tab closes. Visual comparison and physical keyboard and pointer testing remain open.
+
 ## Window controls follow-up
 
-On Fedora 45 GNOME Wayland, the `wayland_window_controls` test verified the 28 CSS px control widths and native maximize, restore, and close actions with fatal GTK warnings enabled. GTK still sent a native blur region with Blur My Shell temporarily disabled. Visual comparison at fractional scales remains open.
-
-The same test verifies the 40 × 19 CSS px tab control group, new-tab action, and Appearance popover. Visual comparison of the plus and chevron at fractional scales remains open.
+On Fedora 45 GNOME Wayland, the `wayland_window_controls` test verified the 28 CSS px control widths and native maximize, restore, and close actions with fatal GTK warnings enabled. GTK still sent a native blur region with Blur My Shell temporarily disabled. The test also verified the 40 × 19 CSS px tab controls and tab menu. Visual comparison at fractional scales remains open.
 
 ## Terminal productivity follow-up
 
@@ -14,13 +16,9 @@ Fedora 45 GNOME Wayland regression tests covered literal and case-sensitive scro
 
 On Fedora 45 GNOME Wayland, `cargo test --locked wayland_tab_interactions -- --ignored --nocapture` passed with `G_DEBUG=fatal-criticals` and Blur My Shell disabled. The test exercised menu mapping, renaming and resetting a background tab, color styling and reset, forward and backward wraparound, and closing a tab with its menu open. The existing shell stayed alive through renaming and terminated on close. The Wayland trace still showed GTK submitting a native blur region. Physical pointer and keyboard gestures, color-picker interaction, and visual contrast remain for manual review.
 
-The same test verifies the 40 × 19 CSS px tab control group, new-tab action, and Appearance popover. Visual comparison of the plus and chevron at fractional scales remains open.
-
 ## Appearance Settings follow-up
 
 On Fedora 45 GNOME Wayland, `cargo test --locked wayland_appearance_settings -- --ignored --nocapture` passed with a fresh config directory and `G_DEBUG=fatal-criticals`. The test exercised the Settings entry, live font, cursor, and padding preview, Cancel, Save, and Reset to defaults. The original Bash process remained active, and TOML comments and unrelated keys survived saving. Native picker interaction and visual preview fidelity still need manual review.
-
-The same test verifies the 40 × 19 CSS px tab control group, new-tab action, and Appearance popover. Visual comparison of the plus and chevron at fractional scales remains open.
 
 Updated 2026-11-15 for [draft PR #2](https://github.com/tobiasGuta/veyl/pull/2).
 

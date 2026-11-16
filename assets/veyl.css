@@ -230,21 +230,115 @@ window.veyl-window.maximized .veyl-header windowcontrols button.maximize {
   background-color: transparent;
 }
 
-.veyl-appearance > contents {
-  background: #22232b;
+.veyl-launch-menu > contents {
+  background: #25262d;
   color: #f2f3f7;
   border: 1px solid rgba(212, 216, 240, 0.20);
-  border-radius: 8px;
-  padding: 14px;
+  border-radius: 7px;
+  padding: 4px;
 }
 
-.veyl-appearance scale {
-  padding: 0 4px;
+.veyl-launch-menu button {
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  border-radius: 4px;
+  min-height: 28px;
+  padding: 0 10px;
 }
 
-.veyl-appearance scale value {
-  font-variant-numeric: tabular-nums;
-  color: #d2d4dc;
+.veyl-launch-menu button:hover,
+.veyl-launch-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.veyl-launch-menu separator {
+  margin: 3px 4px;
+}
+
+.veyl-settings {
+  background: #23242a;
+  color: #f2f3f7;
+}
+
+.veyl-settings-nav {
+  background: #1c1d23;
+  border-right: 1px solid rgba(212, 216, 240, 0.12);
+}
+
+.veyl-settings-nav list {
+  background: transparent;
+  padding: 8px;
+}
+
+.veyl-settings-nav row {
+  min-height: 32px;
+  padding: 0 12px;
+  color: #e2e4ee;
+  border-radius: 4px;
+}
+
+.veyl-settings-nav row:hover,
+.veyl-settings-nav row:selected {
+  background: #34363f;
+}
+
+.veyl-settings-nav row:selected {
+  color: #fff;
+  box-shadow: inset 2px 0 #a9bfff;
+}
+
+.veyl-settings-page {
+  padding: 18px 24px;
+}
+
+.veyl-settings-heading {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.veyl-settings-page > .veyl-hint {
+  margin-bottom: 8px;
+}
+
+.veyl-settings-row,
+.veyl-schemes row {
+  min-height: 38px;
+  padding: 4px 12px;
+  background: #2b2d35;
+  border-radius: 4px;
+}
+
+.veyl-schemes {
+  background: transparent;
+  margin-bottom: 8px;
+}
+
+.veyl-schemes row {
+  margin-bottom: 4px;
+}
+
+.veyl-schemes row:hover,
+.veyl-schemes row:selected {
+  background: #323f59;
+}
+
+.veyl-schemes row:selected {
+  color: #fff;
+  box-shadow: inset 2px 0 #a9bfff;
+}
+
+.veyl-settings-footer {
+  background: #1c1d23;
+  border-top: 1px solid rgba(212, 216, 240, 0.12);
+  padding: 8px 14px;
+}
+
+.veyl-settings > .error {
+  color: #ffafad;
+  padding: 6px 14px;
 }
 
 .veyl-hint {

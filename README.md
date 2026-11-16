@@ -29,7 +29,7 @@ If Veyl cannot start the shell, the affected tab shows the error and can be clos
 - Rust + GTK4 application with custom dark header, integrated selectable tabs, new/close tab buttons and Wayland-friendly GTK window management.
 - VTE terminal widget per tab, launching the `$SHELL` executable (or `/bin/bash` fallback), with regular shell environment inheritance.
 - Windows Terminal-inspired styling in [assets/veyl.css](assets/veyl.css).
-- Appearance popover with **Frosted background** and **Background opacity** controls. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
+- Settings tab with Appearance, Color schemes, Profiles, and Keyboard shortcuts. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
 - Configurable font, font size, foreground/background colors, and scrollback via TOML.
 - Clipboard shortcuts and basic tab shortcuts.
 - No telemetry, command-history collection, AI execution, or remote service integration.
@@ -59,13 +59,16 @@ Open **Keyboard shortcuts…** from the arrow beside **+** to change or clear bi
 
 **Caution:** Closing a tab can terminate or disconnect interactive programs. Do not test with unsaved work.
 
-## Appearance and transparency
+## Settings
 
-The arrow beside **+** opens quick controls for frosted background and opacity. The default frosted background uses a **72%** dark tint over native compositor blur. The **Background opacity** slider changes the tint while keeping terminal text fully opaque.
+Choose **Settings…** from the arrow beside **+** to open the Settings tab.
 
-Choose **Settings…** in the same menu to change the font, font size, text color, background tint, cursor shape, and horizontal and vertical terminal padding. The sample terminal previews changes as you edit. **Save** applies them to the current window and its open tabs. **Cancel** discards the draft. **Reset to defaults** restores the fields in the editor so you can preview the defaults before saving.
+- **Appearance** controls the font, text color, background tint, frosted background, opacity, cursor, padding, and tab progress. The sample terminal previews typography and colors. The default frosted background uses a **72%** dark tint over compositor blur, with fully opaque terminal text.
+- **Color schemes** shows ANSI swatches for built-in and valid custom palettes. The selected scheme applies to terminals that inherit the default. Profiles can override it in TOML.
+- **Profiles** selects which configured profile the **+** button opens. Define shell commands, starting directories, and per-profile schemes in TOML.
+- **Keyboard shortcuts** edits the bindings for supported terminal actions.
 
-**Color scheme** sets the 16 ANSI colors plus the optional cursor and selection colors. **Midnight** and **Warm dusk** are built in. Programs that report progress with a VTE-supported sequence show a progress line under the tab title for the selected pane within that tab. Toggle **Show tab progress** in Settings to hide it.
+**Save** applies the draft and closes the tab. **Discard changes** or the Settings tab's close button drops the draft. You can switch to a terminal tab and return to the draft later. **Reset to defaults** resets the current section in the draft.
 
 Frosted mode uses GTK 4.24 and the Wayland `ext-background-effect-v1` protocol. Veyl uses a solid dark background when this path is unavailable. Turn **Frosted background** off to use plain translucency, or set opacity to **100%** for a solid background. See the [visual spec](docs/VISUAL_SPEC.md).
 

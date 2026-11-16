@@ -33,7 +33,7 @@ env -u BASH_ENV -u ENV CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
 
 Run the same command with `wayland_clipboard_actions` in an isolated Wayland session. That test replaces the session clipboard with synthetic text, exercises the application's copy and paste actions, and checks the ANSI foreground color in VTE's HTML export. Verify the physical shortcuts separately with the checklist below.
 
-Run the command with `wayland_appearance_settings` and a fresh `XDG_CONFIG_HOME` to test the Settings entry, font preview, Cancel, Save, Reset to defaults, and TOML comment preservation.
+Run the command with `wayland_appearance_settings` and a fresh `XDG_CONFIG_HOME` to test the Settings tab, font preview, switching between terminal and Settings tabs, scheme and default-profile selection, blur and opacity persistence, Discard changes, Save, Reset to defaults, and TOML comment preservation.
 
 Run the same command with `wayland_tab_interactions` to test ordered tab cycling, menu actions on a background tab, rename and reset, tab color rules, and shell cleanup when a tab closes with its menu open. For manual coverage, right-click an inactive tab, use Shift+F10 on a focused tab, choose a light and a dark tab color, then press Ctrl+Tab and Ctrl+Shift+Tab at the ends of the strip.
 
@@ -43,9 +43,9 @@ The same harness also runs these tests. Use a fresh test configuration directory
 - `wayland_profiles_splits_and_progress` covers a named project profile, rendered ANSI colors, progress updates and reset, nested splits, directional focus, and shell cleanup after pane and window close.
 - `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
 
-Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display.
+Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display. In Settings, check sidebar navigation, menu row visibility, and the fixed footer at narrow window sizes and fractional scaling.
 
-Run `wayland_window_controls` with the same harness to check the compact tab control dimensions, new-tab action, Appearance popover, three window control widths, native maximize and restore, and window close. Compare idle, hover, and maximized glyphs visually at the target display scales.
+Run `wayland_window_controls` with the same harness to check the compact tab control dimensions, new-tab action, tab menu, three window control widths, native maximize and restore, and window close. Compare idle, hover, and maximized glyphs visually at the target display scales.
 
 ## Manual GNOME Wayland checklist
 
