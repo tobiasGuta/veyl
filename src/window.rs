@@ -1,3 +1,4 @@
+mod palette;
 mod panes;
 mod search;
 mod settings;
@@ -524,6 +525,15 @@ fn build_tab_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
         body.append(&button);
     }
 
+    let palette = menu_row("Command Palette…", "system-search-symbolic");
+    palette.set_action_name(Some("win.command-palette"));
+    palette.connect_clicked(glib::clone!(
+        #[weak]
+        popover,
+        move |_| popover.popdown()
+    ));
+    body.append(&palette);
+
     let scrolled = ScrolledWindow::builder()
         .hscrollbar_policy(PolicyType::Never)
         .vscrollbar_policy(PolicyType::Automatic)
@@ -802,6 +812,28 @@ fn active_terminal(state: &Rc<RefCell<State>>) -> Option<Terminal> {
 }
 
 fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<RefCell<State>>) {
+    let settings = gio::SimpleAction::new("settings", None);
+    settings.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            open_settings(&state, "appearance");
+        }
+    ));
+    window.add_action(&settings);
+    let palette = gio::SimpleAction::new("command-palette", None);
+    palette.connect_activate(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        state,
+        move |_, _| {
+            let profiles = state.borrow().config.profiles.clone();
+            palette::show(&window, &profiles);
+        }
+    ));
+    window.add_action(&palette);
+
     let new_tab = gio::SimpleAction::new("new-tab", None);
     new_tab.connect_activate(glib::clone!(
         #[weak]

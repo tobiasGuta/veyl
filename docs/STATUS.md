@@ -1,5 +1,9 @@
 # Verification status
 
+## Command palette
+
+On Fedora 45 GNOME Wayland, the command palette test exercised search, empty results, current shortcut labels, Settings activation, and opening a profile. Physical keyboard navigation remains for manual verification.
+
 ## Launcher icon
 
 2026-11-16, Fedora 45 GNOME Wayland. `desktop-file-validate` accepted both the repository and installed desktop entries. GdkPixbuf rendered the SVG, and GTK resolved it by application ID through the installed icon theme at 16, 24, 48, and 128 px. Visual verification in the GNOME dock remains open.
