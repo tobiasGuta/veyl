@@ -27,7 +27,7 @@ CSS pixels are not guaranteed physical pixels at fractional GNOME display scalin
 
 ## Fidelity levels
 
-1. **v0.1:** compact left-aligned tabs, adjacent add and appearance controls, a dark palette, and live opacity and frosted background controls. GTK supplies the window controls and keeps native titlebar interactions.
+1. **v0.1:** compact left-aligned tabs, adjacent add and tab menu controls, a dark palette, and adjustable opacity and frosted background. GTK supplies the window controls and keeps native titlebar interactions.
 2. **v0.2:** visual regression references and a tunable design system for fonts, colors, density, padding, accent color and tab layout; user-selectable themes.
 
 Veyl draws the window-control glyphs with the titlebar stylesheet. The maximize glyph changes from a square to overlapping squares when the window is maximized. GTK supplies the button actions and accessible labels.
@@ -37,11 +37,11 @@ Veyl draws the window-control glyphs with the titlebar stylesheet. The maximize 
 - Alpha transparency blends the window surface with whatever is behind it.
 - GTK 4.24 forwards the window's backdrop filter to compositors that advertise `ext-background-effect-v1`. The compositor samples and blurs the backdrop. Veyl paints a dark alpha tint above it and keeps terminal glyphs opaque.
 - GNOME can provide blur directly through Mutter. Test with Blur My Shell disabled to isolate that path.
-- On an unsupported display or GTK version, frosted mode uses a solid background and explains the fallback in the appearance popover. Turn frosted mode off to adjust the background tint without blur.
+- On an unsupported display or GTK version, frosted mode uses a solid background and explains the fallback under Settings → Appearance. Turn frosted mode off to adjust the background tint without blur.
 
 ## Customizing the window chrome
 
-Set the terminal colors, font, blur and tint opacity in `veyl/config.toml` under your user configuration directory. For the chrome, GTK loads `$XDG_CONFIG_HOME/gtk-4.0/gtk.css` (usually `~/.config/gtk-4.0/gtk.css`). Scope overrides to `window.veyl-window`. See [the built-in stylesheet](../assets/veyl.css) for selectors covering tabs, frame, titlebar, terminal padding, and the appearance popover. For example, this sets a square frame and a larger terminal inset.
+Set the terminal colors, font, blur and tint opacity in `veyl/config.toml` under your user configuration directory. For the chrome, GTK loads `$XDG_CONFIG_HOME/gtk-4.0/gtk.css` (usually `~/.config/gtk-4.0/gtk.css`). Scope overrides to `window.veyl-window`. See [the built-in stylesheet](../assets/veyl.css) for selectors covering tabs, frame, titlebar, terminal padding, the tab menu, and Settings. For example, this sets a square frame and a larger terminal inset.
 
 ```css
 window.veyl-window,
@@ -56,7 +56,7 @@ window.veyl-window .veyl-terminal-surface {
 
 ## UI acceptance checklist
 
-- No sidebar or dashboard in v0.1; shell takes most of the window.
+- Terminal tabs give the shell the viewport. The Settings tab has a section sidebar, scrollable content, and a fixed action bar.
 - Titlebar integrates active and inactive tabs, add and dropdown controls.
 - Tab selection and close affordances are clear with keyboard focus.
 - Colors remain readable at 40% / 72% / 100% background opacity.

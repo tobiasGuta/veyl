@@ -6,8 +6,8 @@
 Gtk.Application (single application id)
   └─ Gtk.ApplicationWindow + Gtk.HeaderBar (custom CSS)
       ├─ tab bar: Gtk.Box containing selectable tab chips
-      ├─ appearance Gtk.Popover (blur and opacity)
-      └─ Gtk.Stack: one surface + Vte.Terminal per tab
+      ├─ tab menu Gtk.Popover (profiles and terminal actions)
+      └─ Gtk.Stack: terminal tab surfaces and a Settings workspace
                       │
                       └─ VTE PTY → $SHELL (or /bin/bash)
                                         ├─ editor, ssh, tmux, ...
@@ -36,7 +36,7 @@ VTE launches a profile executable or falls back to the user's `$SHELL`. A profil
 
 ## Configuration
 
-Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/config.toml`. Use serde for TOML fields; clamp unreasonable numeric values. Slider saves config to the same file. Settings are scoped to a single user; no global system config is written.
+Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/config.toml`. Use serde for TOML fields; clamp unreasonable numeric values. Save in the Settings tab writes the changed fields and applies them to the open window. The draft lives with that tab, and its preview terminals have no PTY. Settings are scoped to a single user; no global system config is written.
 
 ## Rendering constraint
 

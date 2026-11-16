@@ -1,4 +1,6 @@
-use super::{activate_tab, close_tab, open_tab_with_launch, update_appearance, State};
+use super::{
+    activate_settings, activate_tab, close_tab, open_tab_with_launch, update_appearance, State,
+};
 use gtk::accessible::Property;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib, ApplicationWindow, Button, PopoverMenu};
@@ -115,20 +117,29 @@ pub(super) fn install_actions(window: &ApplicationWindow, state: &Rc<RefCell<Sta
 }
 
 fn cycle_tab(state: &Rc<RefCell<State>>, forward: bool) {
-    let id = {
+    let (target, settings_open) = {
         let ui = state.borrow();
-        let Some(current) = ui.tabs.iter().position(|tab| Some(tab.id) == ui.active) else {
+        let count = ui.tabs.len() + usize::from(ui.settings.is_some());
+        if count == 0 {
             return;
-        };
-        let count = ui.tabs.len();
+        }
+        let current = ui
+            .tabs
+            .iter()
+            .position(|tab| Some(tab.id) == ui.active)
+            .unwrap_or(ui.tabs.len());
         let next = if forward {
             (current + 1) % count
         } else {
             (current + count - 1) % count
         };
-        ui.tabs[next].id
+        (ui.tabs.get(next).map(|tab| tab.id), ui.settings.is_some())
     };
-    activate_tab(state, id);
+    if let Some(id) = target {
+        activate_tab(state, id);
+    } else if settings_open {
+        activate_settings(state);
+    }
 }
 
 fn open_rename(state: &Rc<RefCell<State>>, id: u64) {

@@ -385,7 +385,17 @@ fn button(root: &gtk::Widget, label: &str) -> Button {
     descendants(root)
         .into_iter()
         .filter_map(|widget| widget.downcast::<Button>().ok())
-        .find(|button| button.label().as_deref() == Some(label))
+        .find(|button| {
+            button.label().as_deref() == Some(label)
+                || button.child().is_some_and(|child| {
+                    child
+                        .downcast::<gtk::Box>()
+                        .ok()
+                        .and_then(|row| row.last_child())
+                        .and_then(|widget| widget.downcast::<Label>().ok())
+                        .is_some_and(|text| text.text() == label)
+                })
+        })
         .unwrap()
 }
 
@@ -410,18 +420,20 @@ fn wayland_appearance_settings() {
         .unwrap();
     let settings_button = button(menu.popover().unwrap().upcast_ref(), "Settings…");
 
-    for (action, expected) in [("Cancel", 14), ("Save", 18), ("Save", 12)] {
+    for (action, expected) in [("Discard changes", 14), ("Save", 18), ("Save", 12)] {
         settings_button.emit_clicked();
-        let dialog = wait_for("settings window", || {
-            gtk::Window::list_toplevels()
-                .into_iter()
-                .find_map(|widget| {
-                    widget.downcast::<gtk::Window>().ok().filter(|window| {
-                        window.is_visible() && window.title().as_deref() == Some("Veyl Settings")
-                    })
-                })
-        });
-        let widgets = descendants(dialog.upcast_ref());
+        let (surface, pages) = {
+            let ui = state.borrow();
+            let workspace = &ui.settings.as_ref().unwrap().workspace;
+            assert_eq!(
+                ui.stack.visible_child().as_ref(),
+                Some(workspace.surface.upcast_ref())
+            );
+            (workspace.surface.clone(), workspace.pages.clone())
+        };
+        assert_eq!(pages.visible_child_name().as_deref(), Some("appearance"));
+        let appearance = pages.visible_child().unwrap();
+        let widgets = descendants(&appearance);
         let preview = widgets
             .iter()
             .find_map(|widget| widget.downcast_ref::<Terminal>())
@@ -434,12 +446,22 @@ fn wayland_appearance_settings() {
             .iter()
             .find_map(|widget| widget.downcast_ref::<gtk::DropDown>())
             .unwrap();
+        let blur = widgets
+            .iter()
+            .find_map(|widget| widget.downcast_ref::<gtk::Switch>())
+            .unwrap();
+        let opacity = widgets
+            .iter()
+            .find_map(|widget| widget.downcast_ref::<gtk::Scale>())
+            .unwrap();
         if expected == 12 {
-            button(dialog.upcast_ref(), "Reset to defaults").emit_clicked();
+            button(surface.upcast_ref(), "Reset to defaults").emit_clicked();
             assert_eq!(preview.font().unwrap().size(), 12 * pango::SCALE);
             assert_eq!(preview.cursor_shape(), vte4::CursorShape::Block);
             assert_eq!(preview.margin_start(), 10);
         } else {
+            blur.set_active(false);
+            opacity.set_value(61.0);
             fields[0].set_value(18.0);
             fields[1].set_value(16.0);
             cursor.set_selected(1);
@@ -448,11 +470,46 @@ fn wayland_appearance_settings() {
             assert_eq!(preview.margin_start(), 16);
         }
         assert!(preview.pty().is_none());
-        button(dialog.upcast_ref(), action).emit_clicked();
+        let schemes = pages.child_by_name("schemes").unwrap();
+        let list = descendants(&schemes)
+            .into_iter()
+            .find_map(|widget| widget.downcast::<gtk::ListBox>().ok())
+            .unwrap();
+        if expected != 12 {
+            let sidebar = descendants(surface.upcast_ref())
+                .into_iter()
+                .find_map(|widget| widget.downcast::<gtk::StackSidebar>().ok())
+                .unwrap();
+            let navigation = descendants(sidebar.upcast_ref())
+                .into_iter()
+                .find_map(|widget| widget.downcast::<gtk::ListBox>().ok())
+                .unwrap();
+            navigation.select_row(navigation.row_at_index(1).as_ref());
+            assert_eq!(pages.visible_child_name().as_deref(), Some("schemes"));
+            list.select_row(list.row_at_index(1).as_ref());
+            activate(&window, "next-tab");
+            assert_eq!(active_terminal(&state), Some(terminal.clone()));
+            activate(&window, "previous-tab");
+            assert_eq!(pages.visible_child_name().as_deref(), Some("schemes"));
+            assert_eq!(list.selected_row().unwrap().index(), 1);
+        }
+        let profiles = pages.child_by_name("profiles").unwrap();
+        let profile = descendants(&profiles)
+            .into_iter()
+            .find_map(|widget| widget.downcast::<gtk::DropDown>().ok())
+            .unwrap();
+        if expected == 18 {
+            profile.set_selected(1);
+        }
+        button(surface.upcast_ref(), action).emit_clicked();
+        assert!(state.borrow().settings.is_none());
+        assert_eq!(active_terminal(&state), Some(terminal.clone()));
         assert_eq!(terminal.font().unwrap().size(), expected * pango::SCALE);
         assert!(shell.exists());
         let saved = Config::load();
         assert_eq!(saved.font_size, expected as u16);
+        assert_eq!(saved.blur, expected != 18);
+        assert_eq!(saved.opacity, if expected == 18 { 0.61 } else { 0.72 });
         assert_eq!(saved.padding_x, if expected == 18 { 16 } else { 10 });
         assert_eq!(
             terminal.cursor_shape(),
@@ -463,15 +520,30 @@ fn wayland_appearance_settings() {
             }
         );
         let contents = fs::read_to_string(&path).unwrap();
-        if action == "Cancel" {
+        assert_eq!(
+            saved.color_scheme,
+            if expected == 14 { "" } else { "Midnight" }
+        );
+        assert_eq!(
+            saved.default_profile,
+            if expected == 14 { "" } else { "Bash" }
+        );
+        if action == "Discard changes" {
             assert_eq!(contents, original);
         } else {
             assert!(contents.contains(&format!("font_size = {expected} # pt")));
             assert!(contents.contains("extra_option = true"));
         }
     }
+    settings_button.emit_clicked();
+    let terminal_id = state.borrow().settings.as_ref().unwrap().return_to.unwrap();
+    close_tab(&state, terminal_id);
+    assert!(window.is_visible());
+    assert!(state.borrow().tabs.is_empty());
+    assert!(state.borrow().settings.is_some());
     drop(terminal);
-    window.close();
+    activate(&window, "close-tab");
+    assert!(!window.is_visible());
 }
 
 #[test]
@@ -785,16 +857,15 @@ fn wayland_shortcut_editor() {
     let (window, state) = create_window(&app, Config::default());
     window.present();
     open_tab(&state);
-    open_shortcuts(&state);
-    let dialog = wait_for("shortcut editor", || {
-        gtk::Window::list_toplevels()
-            .into_iter()
-            .find_map(|widget| {
-                widget.downcast::<gtk::Window>().ok().filter(|window| {
-                    window.is_visible() && window.title().as_deref() == Some("Veyl Shortcuts")
-                })
-            })
-    });
+    open_settings(&state, "shortcuts");
+    let dialog = state
+        .borrow()
+        .settings
+        .as_ref()
+        .unwrap()
+        .workspace
+        .surface
+        .clone();
     let entries = descendants(dialog.upcast_ref())
         .into_iter()
         .filter_map(|widget| widget.downcast::<gtk::Entry>().ok())
@@ -812,7 +883,7 @@ fn wayland_shortcut_editor() {
 
     copy.set_text("<Primary><Shift>y");
     save.emit_clicked();
-    assert!(!dialog.is_visible());
+    assert!(dialog.parent().is_none());
     assert_eq!(Config::load().shortcuts["copy"], vec!["<Primary><Shift>y"]);
     assert_eq!(
         gtk::accelerator_parse(&app.accels_for_action("win.copy")[0]),
@@ -851,9 +922,7 @@ fn wayland_window_controls() {
         .unwrap();
     dropdown.popup();
     let popover = dropdown.popover().unwrap();
-    wait_for("appearance dropdown to open", || {
-        popover.is_mapped().then_some(())
-    });
+    wait_for("tab menu to open", || popover.is_mapped().then_some(()));
     dropdown.popdown();
 
     let controls = descendants(window.upcast_ref())
