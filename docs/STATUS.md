@@ -1,5 +1,9 @@
 # Verification status
 
+## Pane zoom and directory titles
+
+The Fedora 45 GNOME Wayland tests exercised zoom and restore in nested splits, separate font scales, closing a zoomed pane, and OSC 7 directory labels with manual rename precedence. Physical shortcuts and optical review remain open.
+
 ## Smart Bash prompt
 
 The Fedora 45 GNOME Wayland test confirmed that the editor honors a disabled segment and that new Bash 5.3 tabs show the saved prompt, command failure status, and elapsed time without a separate .bashrc helper. The existing prompt and managed .bashrc regression passed. Physical UI review and the complete matrix of prompt indicators remain open.

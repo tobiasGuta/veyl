@@ -178,6 +178,14 @@ pub(super) fn spawn(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
             }
         }
     ));
+    terminal.connect_termprop_changed(
+        Some("vte.cwd"),
+        glib::clone!(
+            #[weak]
+            state,
+            move |_, _| super::tabs::refresh_title(&state, tab_id)
+        ),
+    );
     for property in [PROGRESS_VALUE, PROGRESS_HINT] {
         terminal.connect_termprop_changed(
             Some(property),
@@ -275,6 +283,7 @@ fn set_active_pane(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
         tab.active_pane = pane_id;
     }
     refresh_progress(state, tab_id);
+    super::tabs::refresh_title(state, tab_id);
 }
 
 pub(super) fn refresh_progress(state: &Rc<RefCell<State>>, tab_id: u64) {
@@ -373,6 +382,58 @@ impl Slot {
     }
 }
 
+fn unzoom(state: &Rc<RefCell<State>>, tab_id: u64) -> bool {
+    let siblings = {
+        let mut ui = state.borrow_mut();
+        let Some(tab) = ui.tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+            return false;
+        };
+        std::mem::take(&mut tab.zoomed_siblings)
+    };
+    let was_zoomed = !siblings.is_empty();
+    for (split, sibling, position) in siblings {
+        sibling.set_visible(true);
+        split.set_position(position);
+    }
+    was_zoomed
+}
+
+fn toggle_zoom(state: &Rc<RefCell<State>>) {
+    let (tab_id, mut child) = {
+        let ui = state.borrow();
+        let Some(tab) = ui.tabs.iter().find(|tab| Some(tab.id) == ui.active) else {
+            return;
+        };
+        (
+            tab.id,
+            tab.active_pane().search.overlay.clone().upcast::<Widget>(),
+        )
+    };
+    if !unzoom(state, tab_id) {
+        let mut siblings = Vec::new();
+        while let Some(split) = child.parent().and_downcast::<Paned>() {
+            let sibling = if split.start_child().as_ref() == Some(&child) {
+                split.end_child()
+            } else {
+                split.start_child()
+            };
+            if let Some(sibling) = sibling {
+                siblings.push((split.clone(), sibling, split.position()));
+            }
+            child = split.upcast();
+        }
+        {
+            let mut ui = state.borrow_mut();
+            let tab = ui.tabs.iter_mut().find(|tab| tab.id == tab_id).unwrap();
+            tab.zoomed_siblings = siblings.clone();
+        }
+        for (_, sibling, _) in siblings {
+            sibling.set_visible(false);
+        }
+    }
+    update_focus_actions(state);
+}
+
 pub(super) fn split_active(state: &Rc<RefCell<State>>, orientation: Orientation) {
     let (tab_id, overlay, launch, select) = {
         let ui = state.borrow();
@@ -387,6 +448,7 @@ pub(super) fn split_active(state: &Rc<RefCell<State>>, orientation: Orientation)
             tab.select.clone(),
         )
     };
+    unzoom(state, tab_id);
     let current = overlay.upcast::<Widget>();
     let Some(slot) = Slot::containing(&current) else {
         return;
@@ -456,6 +518,7 @@ fn close_pane(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
         close_tab(state, tab_id);
         return;
     }
+    unzoom(state, tab_id);
     let child = overlay.upcast::<Widget>();
     let Some(split) = child.parent().and_downcast::<Paned>() else {
         return;
@@ -520,6 +583,7 @@ fn close_pane(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
     }
     update_focus_actions(state);
     refresh_progress(state, tab_id);
+    super::tabs::refresh_title(state, tab_id);
 }
 
 fn focus_neighbor(state: &Rc<RefCell<State>>, dx: f32, dy: f32) {
@@ -556,17 +620,22 @@ fn focus_neighbor(state: &Rc<RefCell<State>>, dx: f32, dy: f32) {
 }
 
 pub(super) fn update_focus_actions(state: &Rc<RefCell<State>>) {
-    let (window, enabled) = {
+    let (window, split, zoomed) = {
         let ui = state.borrow();
+        let tab = ui.tabs.iter().find(|tab| Some(tab.id) == ui.active);
         (
             ui.window.upgrade(),
-            ui.tabs
-                .iter()
-                .find(|tab| Some(tab.id) == ui.active)
-                .is_some_and(|tab| tab.panes.len() > 1),
+            tab.is_some_and(|tab| tab.panes.len() > 1),
+            tab.is_some_and(|tab| !tab.zoomed_siblings.is_empty()),
         )
     };
     if let Some(window) = window {
+        if let Some(action) = window
+            .lookup_action("zoom-pane")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(split);
+        }
         for name in [
             "focus-pane-left",
             "focus-pane-right",
@@ -577,13 +646,21 @@ pub(super) fn update_focus_actions(state: &Rc<RefCell<State>>) {
                 .lookup_action(name)
                 .and_downcast::<gio::SimpleAction>()
             {
-                action.set_enabled(enabled);
+                action.set_enabled(split && !zoomed);
             }
         }
     }
 }
 
 pub(super) fn install_actions(window: &ApplicationWindow, state: &Rc<RefCell<State>>) {
+    let zoom = gio::SimpleAction::new("zoom-pane", None);
+    zoom.set_enabled(false);
+    zoom.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| toggle_zoom(&state)
+    ));
+    window.add_action(&zoom);
     for (name, orientation) in [
         ("split-right", Orientation::Horizontal),
         ("split-down", Orientation::Vertical),

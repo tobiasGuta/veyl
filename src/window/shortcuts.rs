@@ -20,6 +20,18 @@ pub(super) const ACTIONS: &[(&str, &str, &str)] = &[
     ("focus-pane-up", "Focus pane above", "<Alt>Up"),
     ("focus-pane-down", "Focus pane below", "<Alt>Down"),
     ("settings", "Settings", "<Primary>comma"),
+    ("zoom-pane", "Toggle pane zoom", "<Primary><Shift>Return"),
+    (
+        "increase-font-size",
+        "Increase terminal font size",
+        "<Primary>equal",
+    ),
+    (
+        "decrease-font-size",
+        "Decrease terminal font size",
+        "<Primary>minus",
+    ),
+    ("reset-font-size", "Reset terminal font size", "<Primary>0"),
     ("command-palette", "Command Palette", "<Primary><Shift>p"),
 ];
 

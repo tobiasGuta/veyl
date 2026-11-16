@@ -1,5 +1,6 @@
 use super::{
-    activate_settings, activate_tab, close_tab, open_tab_with_launch, update_appearance, State,
+    activate_settings, activate_tab, close_tab, open_tab_with_launch, panes, update_appearance,
+    State,
 };
 use gtk::accessible::Property;
 use gtk::prelude::*;
@@ -143,14 +144,14 @@ fn cycle_tab(state: &Rc<RefCell<State>>, forward: bool) {
 }
 
 fn open_rename(state: &Rc<RefCell<State>>, id: u64) {
-    let (parent, label, default_title) = {
+    let (parent, manual_title, default_title) = {
         let ui = state.borrow();
         let Some(tab) = ui.tabs.iter().find(|tab| tab.id == id) else {
             return;
         };
         (
             ui.window.upgrade(),
-            tab.label.clone(),
+            tab.manual_title.clone(),
             tab.default_title.clone(),
         )
     };
@@ -169,8 +170,8 @@ fn open_rename(state: &Rc<RefCell<State>>, id: u64) {
         .activates_default(true)
         .build();
     entry.update_property(&[Property::Label("Tab name")]);
-    if label.text() != default_title {
-        entry.set_text(&label.text());
+    if let Some(title) = manual_title {
+        entry.set_text(&title);
     }
     let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
     content.set_margin_top(16);
@@ -212,25 +213,60 @@ fn open_rename(state: &Rc<RefCell<State>>, id: u64) {
 }
 
 fn rename(state: &Rc<RefCell<State>>, id: u64, title: &str) {
-    let (label, select, close, default_title) = {
-        let ui = state.borrow();
-        let Some(tab) = ui.tabs.iter().find(|tab| tab.id == id) else {
+    if let Some(tab) = state.borrow_mut().tabs.iter_mut().find(|tab| tab.id == id) {
+        tab.manual_title = (!title.is_empty()).then(|| title.to_owned());
+    }
+    refresh_title(state, id);
+}
+
+pub(super) fn refresh_title(state: &Rc<RefCell<State>>, id: u64) {
+    let (label, select, close, title) = {
+        let mut ui = state.borrow_mut();
+        let State { tabs, config, .. } = &mut *ui;
+        let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id) else {
             return;
         };
+        let pane = tab.active_pane();
+        let directory = config
+            .directory_tab_titles
+            .then(|| {
+                panes::current_directory(&pane.terminal, pane.pid).or_else(|| {
+                    pane.launch
+                        .directory
+                        .as_deref()
+                        .map(std::path::PathBuf::from)
+                })
+            })
+            .flatten();
+        tab.default_title = directory
+            .map_or_else(
+                || pane.launch.title(config),
+                |path| {
+                    let parent = path.parent().and_then(|parent| parent.file_name());
+                    match (parent, path.file_name()) {
+                        (Some(parent), Some(name)) => {
+                            format!("{}/{}", parent.to_string_lossy(), name.to_string_lossy())
+                        }
+                        (_, Some(name)) => name.to_string_lossy().into_owned(),
+                        _ => path.display().to_string(),
+                    }
+                },
+            )
+            .replace(char::is_control, " ");
+        let title = tab
+            .manual_title
+            .as_ref()
+            .unwrap_or(&tab.default_title)
+            .clone();
         (
             tab.label.clone(),
             tab.select.clone(),
             tab.close.clone(),
-            tab.default_title.clone(),
+            title,
         )
     };
-    let title = if title.is_empty() {
-        &default_title
-    } else {
-        title
-    };
-    label.set_text(title);
-    select.set_tooltip_text(Some(title));
+    label.set_text(&title);
+    select.set_tooltip_text(Some(&title));
     select.update_property(&[Property::Label(&format!("Tab {id}, {title}"))]);
     close.update_property(&[Property::Label(&format!("Close tab {id}, {title}"))]);
 }
