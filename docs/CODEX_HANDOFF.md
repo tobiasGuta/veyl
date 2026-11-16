@@ -9,7 +9,7 @@ Read [AGENTS.md](../AGENTS.md), [STATUS.md](STATUS.md), [Architecture](ARCHITECT
 ## Highest-priority work items, in order
 
 1. **Keep Fedora 45 checks green.** The appearance branch tracks Cargo.lock. Run the locked tests, lint, and build plus the formatting check documented in [Testing](TESTING.md).
-2. **Run the remaining desktop checks.** [Status](STATUS.md) records the lifecycle audit and the native Bash, Vim, tmux, resize, clipboard action, and session cleanup results. Exercise the physical Ctrl+Shift shortcuts, keyboard navigation, and the remaining cases on Fedora GNOME Wayland.
+2. **Run the remaining desktop checks.** [Status](STATUS.md) records the lifecycle audit and the native Bash, Vim, tmux, resize, clipboard action, and session cleanup results. The user confirmed physical shortcut dispatch. Exercise the remaining keyboard navigation and pointer cases on Fedora GNOME Wayland.
 3. **Finish visual verification.** Review native blur with Blur My Shell disabled, text contrast across backdrops, focus visibility, font fallback, and 100/125/150% scaling. Save screenshots only with permission.
 4. **Review settings and session boundaries.** The independent security review and settings write hardening remain open. Review process behavior beyond the tested interactive Bash jobs before making stronger cleanup claims.
 5. **Record results in Status.** Include the environment, commands, evidence, and remaining issues. Keep later enhancements in small PRs.
