@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>Veyl</title>
+  <defs>
+    <linearGradient id="glass" x1="19" y1="98" x2="107" y2="11" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5758be"/>
+      <stop offset="1" stop-color="#a6b9ff"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="47" y1="31" x2="74" y2="110" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#262b42"/>
+      <stop offset="1" stop-color="#151724"/>
+    </linearGradient>
+    <linearGradient id="prompt" x1="33" y1="57" x2="80" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f2f4ff"/>
+      <stop offset="1" stop-color="#a9bfff"/>
+    </linearGradient>
+  </defs>
+  <rect x="22" y="14" width="96" height="79" rx="15" fill="url(#glass)"/>
+  <rect x="11" y="35" width="97" height="79" rx="15" fill="#090b14" opacity=".55"/>
+  <rect x="10" y="31" width="96" height="79" rx="14" fill="url(#panel)" stroke="#626b94" stroke-width="2"/>
+  <path d="m33 56 15 14-15 14m24 0h22" fill="none" stroke="url(#prompt)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

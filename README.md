@@ -24,6 +24,19 @@ Veyl opens a GTK4 window and uses VTE4 to spawn the current user's shell using t
 
 If Veyl cannot start the shell, the affected tab shows the error and can be closed normally. If the application fails to compile, please include the exact `cargo build --locked` output in your report.
 
+### Desktop launcher and icon
+
+If you already have a Veyl executable on your desktop session’s `PATH`, install the launcher and icon from the repository root.
+
+~~~bash
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+desktop=io.github.tobiasGuta.Veyl.desktop
+icon=io.github.tobiasGuta.Veyl.svg
+install -Dm644 "resources/$desktop" "$data_dir/applications/$desktop"
+install -Dm644 "resources/icons/hicolor/scalable/apps/$icon" \
+  "$data_dir/icons/hicolor/scalable/apps/$icon"
+~~~
+
 ## What v0.1 includes in source
 
 - Rust + GTK4 application with custom dark header, integrated selectable tabs, new/close tab buttons and Wayland-friendly GTK window management.
