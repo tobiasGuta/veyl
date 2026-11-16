@@ -142,7 +142,7 @@ impl Pane {
 }
 
 pub(super) fn spawn(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
-    let (terminal, launch, cancel, window) = {
+    let (terminal, launch, cancel, window, prompt) = {
         let ui = state.borrow();
         let pane = ui
             .tabs
@@ -155,6 +155,7 @@ pub(super) fn spawn(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
             pane.launch.clone(),
             pane.spawn.clone(),
             ui.window.upgrade(),
+            ui.config.bash_prompt.clone(),
         )
     };
     terminal.connect_child_exited(glib::clone!(
@@ -190,11 +191,39 @@ pub(super) fn spawn(state: &Rc<RefCell<State>>, tab_id: u64, pane_id: u64) {
         .map(|app| app.hold());
     let shell_for_error = launch.shell.clone();
     let weak = Rc::downgrade(state);
+    let mut argv = vec![launch.shell.as_str()];
+    let mut environment = Vec::new();
+    let startup;
+    let prompt_variable;
+    if let Some(prompt) =
+        prompt.filter(|value| !value.is_empty() && Path::new(&launch.shell).ends_with("bash"))
+    {
+        let prepared = crate::prompt::validate(&prompt).and_then(|()| {
+            crate::prompt::startup_file()?
+                .into_os_string()
+                .into_string()
+                .map_err(|_| std::io::Error::other("the prompt startup path is not UTF-8"))
+        });
+        match prepared {
+            Ok(path) => {
+                startup = path;
+                prompt_variable = format!("VEYL_BASH_PROMPT={prompt}");
+                argv.extend(["--rcfile", &startup]);
+                environment.push(prompt_variable.as_str());
+            }
+            Err(err) => {
+                let detail = err.to_string().replace(char::is_control, " ");
+                terminal.feed(
+                    format!("Veyl could not load the custom Bash prompt. {detail}\r\n").as_bytes(),
+                );
+            }
+        }
+    }
     terminal.spawn_async(
         PtyFlags::DEFAULT,
         launch.directory.as_deref(),
-        &[&launch.shell],
-        &[],
+        &argv,
+        &environment,
         glib::SpawnFlags::DEFAULT,
         || {},
         -1,

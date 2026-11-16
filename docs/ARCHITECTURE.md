@@ -38,6 +38,8 @@ VTE launches a profile executable or falls back to the user's `$SHELL`. A profil
 
 Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/config.toml`. Use serde for TOML fields; clamp unreasonable numeric values. Save in the Settings tab writes the changed fields and applies them to the open window. The draft lives with that tab, and its preview terminals have no PTY. Settings are scoped to a single user; no global system config is written.
 
+Veyl launches Bash with a generated startup file when a custom prompt is enabled. The file sources the user's usual `.bashrc`, then registers a hook to set PS1 after existing prompt hooks. Veyl passes the PS1 value as data and clears its transport variable before sourcing the user file. The optional dotfile action independently updates a marked block in `.bashrc` using an atomic write.
+
 ## Rendering constraint
 
 The GTK window paints one background tint beneath the header and VTE. VTE skips clearing its default background, leaving glyphs and terminal color cells opaque. On GTK 4.24+ with `ext-background-effect-v1` advertised by the Wayland display, GTK sends the blur region for the window's backdrop filter to the compositor. When that path is unavailable, the default frosted setting uses an opaque tint. Plain background alpha is available by turning off frosted mode.

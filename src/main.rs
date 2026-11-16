@@ -1,4 +1,5 @@
 mod config;
+mod prompt;
 mod window;
 
 use gtk::prelude::*;

@@ -29,7 +29,7 @@ If Veyl cannot start the shell, the affected tab shows the error and can be clos
 - Rust + GTK4 application with custom dark header, integrated selectable tabs, new/close tab buttons and Wayland-friendly GTK window management.
 - VTE terminal widget per tab, launching the `$SHELL` executable (or `/bin/bash` fallback), with regular shell environment inheritance.
 - Windows Terminal-inspired styling in [assets/veyl.css](assets/veyl.css).
-- Settings tab with Appearance, Color schemes, Profiles, and Keyboard shortcuts. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
+- Settings tab with Appearance, Color schemes, Profiles, Shell prompt, and Keyboard shortcuts. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
 - Configurable font, font size, foreground/background colors, and scrollback via TOML.
 - Clipboard shortcuts and basic tab shortcuts.
 - No telemetry, command-history collection, AI execution, or remote service integration.
@@ -66,11 +66,20 @@ Choose **Settings…** from the arrow beside **+** to open the Settings tab.
 - **Appearance** controls the font, text color, background tint, frosted background, opacity, cursor, padding, and tab progress. The sample terminal previews typography and colors. The default frosted background uses a **72%** dark tint over compositor blur, with fully opaque terminal text.
 - **Color schemes** shows ANSI swatches for built-in and valid custom palettes. The selected scheme applies to terminals that inherit the default. Profiles can override it in TOML.
 - **Profiles** selects which configured profile the **+** button opens. Define shell commands, starting directories, and per-profile schemes in TOML.
+- **Shell prompt** provides presets and a multiline Bash prompt editor.
 - **Keyboard shortcuts** edits the bindings for supported terminal actions.
 
 **Save** applies the draft and closes the tab. **Discard changes** or the Settings tab's close button drops the draft. You can switch to a terminal tab and return to the draft later. **Reset to defaults** resets the current section in the draft.
 
 Frosted mode uses GTK 4.24 and the Wayland `ext-background-effect-v1` protocol. Veyl uses a solid dark background when this path is unavailable. Turn **Frosted background** off to use plain translucency, or set opacity to **100%** for a solid background. See the [visual spec](docs/VISUAL_SPEC.md).
+
+### Bash prompt
+
+Under **Settings → Shell prompt**, start with a preset or enter your own Bash `PS1` value. For example, `╭─⟡─\u in \w\n╰─❯ ` uses the current username and working directory on the first line. Bash handles colors, expansion, and prompt escapes when it displays the prompt. Veyl’s text preview displays common escapes with sample values and never evaluates shell expressions. See the [Bash prompt syntax reference](https://www.gnu.org/software/bash/manual/html_node/Controlling-the-Prompt.html).
+
+**Save** stores the prompt for new Bash tabs and panes in Veyl. Choose **Shell default** or clear the editor to restore the prompt your shell already defines. The setting applies to Bash profiles and takes effect when a new shell starts.
+
+**Apply to .bashrc…** writes the current editor text to a marked block after confirmation, independently of **Save**. It affects new Bash sessions that read your `.bashrc`, including those in other terminal apps. Use **Remove Veyl prompt from .bashrc…** to remove only that block.
 
 ## Configuration
 

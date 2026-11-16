@@ -43,6 +43,8 @@ The same harness also runs these tests. Use a fresh test configuration directory
 - `wayland_profiles_splits_and_progress` covers a named project profile, rendered ANSI colors, progress updates and reset, nested splits, directional focus, and shell cleanup after pane and window close.
 - `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
 
+- `wayland_bash_prompt` requires an empty isolated Bash home. It exercises local prompt persistence, a theme that sets PS1 from a hook, the original Bash aliases, and the cancel, apply, and remove actions for the isolated `.bashrc`.
+
 Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display. In Settings, check sidebar navigation, menu row visibility, and the fixed footer at narrow window sizes and fractional scaling.
 
 Run `wayland_window_controls` with the same harness to check the compact tab control dimensions, new-tab action, tab menu, three window control widths, native maximize and restore, and window close. Compare idle, hover, and maximized glyphs visually at the target display scales.
