@@ -1,5 +1,9 @@
 # Verification status
 
+## Settings recovery
+
+The Fedora 45 GNOME Wayland test launched with malformed TOML, found the error and Open config file action, and confirmed defaults and preservation of the original TOML. Launching an external text editor remains for manual verification.
+
 ## Local installer
 
 On Fedora 45, the installer created an executable, desktop entry and SVG in isolated home and data directories. The desktop entry passed validation and `gtk-launch` started Veyl with a home path containing spaces. Uninstall removed the three installed files. Visual app-grid testing on a fresh desktop account remains open.

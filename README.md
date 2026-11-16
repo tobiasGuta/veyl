@@ -147,7 +147,7 @@ find = ["<Primary><Shift>f"]
 
 An omitted shell uses your login shell setting. Use an absolute executable path and an absolute directory or one starting with `~/`. A scheme's `ansi` array is ordered from black through white, then bright black through bright white. Set a shortcut list to `[]` to unbind it. Leave `default_profile` empty to launch your ordinary shell from **+**.
 
-Create the file manually to override defaults. Saving an appearance change also creates the file. Veyl preserves comments and unrelated keys when saving. Manual edits take effect at launch. Invalid TOML falls back to defaults at launch and must be corrected before Veyl can save to that file. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
+Create the file manually to override defaults. Saving an appearance change also creates the file. Veyl preserves comments and unrelated keys when saving. Manual edits take effect at launch. If Veyl cannot read or parse the config at launch, it shows the path and error and offers to open the file. You can continue with defaults, then fix the file and reopen Veyl. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
 
 ## For Codex contributors
 

@@ -409,7 +409,7 @@ fn wayland_appearance_settings() {
     fs::write(&path, original).unwrap();
 
     let app = test_application();
-    let (window, state) = create_window(&app, Config::load());
+    let (window, state) = create_window(&app, Config::load().unwrap());
     open_tab(&state);
     window.present();
     let terminal = active_terminal(&state).unwrap();
@@ -506,7 +506,7 @@ fn wayland_appearance_settings() {
         assert_eq!(active_terminal(&state), Some(terminal.clone()));
         assert_eq!(terminal.font().unwrap().size(), expected * pango::SCALE);
         assert!(shell.exists());
-        let saved = Config::load();
+        let saved = Config::load().unwrap();
         assert_eq!(saved.font_size, expected as u16);
         assert_eq!(saved.blur, expected != 18);
         assert_eq!(saved.opacity, if expected == 18 { 0.61 } else { 0.72 });
@@ -884,7 +884,10 @@ fn wayland_shortcut_editor() {
     copy.set_text("<Primary><Shift>y");
     save.emit_clicked();
     assert!(dialog.parent().is_none());
-    assert_eq!(Config::load().shortcuts["copy"], vec!["<Primary><Shift>y"]);
+    assert_eq!(
+        Config::load().unwrap().shortcuts["copy"],
+        vec!["<Primary><Shift>y"]
+    );
     assert_eq!(
         gtk::accelerator_parse(&app.accels_for_action("win.copy")[0]),
         gtk::accelerator_parse("<Primary><Shift>y")
@@ -1019,7 +1022,7 @@ fn wayland_bash_prompt() {
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
 
     button(surface.upcast_ref(), "Save").emit_clicked();
-    assert_eq!(Config::load().bash_prompt.as_deref(), Some(custom));
+    assert_eq!(Config::load().unwrap().bash_prompt.as_deref(), Some(custom));
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
     open_tab(&state);
     let second = active_terminal(&state).unwrap();
@@ -1063,7 +1066,7 @@ fn wayland_bash_prompt() {
         .surface
         .clone();
     button(surface.upcast_ref(), "Save").emit_clicked();
-    assert!(Config::load().bash_prompt.is_none());
+    assert!(Config::load().unwrap().bash_prompt.is_none());
     open_tab(&state);
     let third = active_terminal(&state).unwrap();
     wait_for("prompt loaded from .bashrc alone", || {
@@ -1149,5 +1152,50 @@ fn wayland_command_palette() {
     }
     assert_eq!(state.borrow().tabs.len(), 2);
     assert!(state.borrow().settings.is_some());
+    window.close();
+}
+
+#[test]
+#[ignore = "requires GNOME Wayland and fresh settings"]
+fn wayland_config_recovery() {
+    let path = Config::path().unwrap();
+    assert!(!path.exists(), "use a fresh test configuration directory");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = "font_size = [";
+    fs::write(&path, original).unwrap();
+
+    let app = test_application();
+    build(&app);
+    let dialog = wait_for("configuration error", || {
+        gtk::Window::list_toplevels()
+            .into_iter()
+            .find_map(|widget| {
+                widget
+                    .downcast::<gtk::Window>()
+                    .ok()
+                    .filter(|window| window.is_visible() && window.is_modal())
+            })
+    });
+    let labels = descendants(dialog.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<Label>().ok())
+        .map(|label| label.text().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(labels.contains(&path.display().to_string()));
+    assert!(labels.contains("font_size = ["));
+    button(dialog.upcast_ref(), "Open config file");
+    button(dialog.upcast_ref(), "Continue with defaults").emit_clicked();
+    let window = app
+        .windows()
+        .into_iter()
+        .find_map(|window| window.downcast::<ApplicationWindow>().ok())
+        .unwrap();
+    let terminal = descendants(window.upcast_ref())
+        .into_iter()
+        .find_map(|widget| widget.downcast::<Terminal>().ok())
+        .unwrap();
+    assert_eq!(terminal.font().unwrap().size(), 12 * pango::SCALE);
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
     window.close();
 }

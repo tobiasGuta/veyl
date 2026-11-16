@@ -41,6 +41,7 @@ The same harness also runs these tests. Use a fresh test configuration directory
 
 - `wayland_search_and_tab_organization` covers literal search in long scrollback, two independent search fields, focus restoration, same-folder duplication, and consistency between model and widget tab order.
 - `wayland_profiles_splits_and_progress` covers a named project profile, rendered ANSI colors, progress updates and reset, nested splits, directional focus, and shell cleanup after pane and window close.
+- `wayland_config_recovery` uses fresh settings to check the startup error, the config path and Open config file button, and the fallback settings.
 - `wayland_command_palette` checks search, empty results, custom shortcut labels, and action and profile activation.
 - `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
 
