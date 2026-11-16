@@ -25,6 +25,7 @@ struct Form {
     profile_names: Vec<String>,
     scheme_names: Vec<String>,
     progress: gtk::Switch,
+    confirm_paste: gtk::Switch,
     padding_x: gtk::SpinButton,
     padding_y: gtk::SpinButton,
     preview: vte4::Terminal,
@@ -50,6 +51,7 @@ impl Form {
                 .copied()
                 .unwrap_or_default(),
             tab_progress: self.progress.is_active(),
+            confirm_multiline_paste: self.confirm_paste.is_active(),
             blur: self.blur.is_active(),
             opacity: if self.opacity.value() == self.original.opacity * 100.0 {
                 self.original.opacity
@@ -77,6 +79,8 @@ impl Form {
     }
 
     fn load(&self, config: &Config) {
+        self.confirm_paste
+            .set_active(config.confirm_multiline_paste);
         self.load_appearance(config);
         self.select_scheme(&config.color_scheme);
         self.select_profile(&config.default_profile);
@@ -228,6 +232,7 @@ pub(super) fn build(
         profile_names,
         scheme_names,
         progress: gtk::Switch::new(),
+        confirm_paste: gtk::Switch::new(),
         font,
         size: gtk::SpinButton::with_range(7.0, 32.0, 1.0),
         foreground: gtk::ColorDialogButton::new(Some(color_dialog.clone())),
@@ -385,6 +390,13 @@ pub(super) fn build(
     );
     let editor = Rc::new(shortcuts::Editor::new(&shortcuts, original));
 
+    let interaction = page(&pages, "interaction", "Interaction", None);
+    append_row(
+        &interaction,
+        "Confirm multiline paste",
+        form.confirm_paste.upcast_ref(),
+    );
+
     let error = description("");
     error.add_css_class("error");
     error.set_visible(false);
@@ -408,6 +420,9 @@ pub(super) fn build(
                 Some("schemes") => form.select_scheme(""),
                 Some("profiles") => form.select_profile(""),
                 Some("prompt") => bash_prompt.set_text(""),
+                Some("interaction") => form
+                    .confirm_paste
+                    .set_active(Config::default().confirm_multiline_paste),
                 _ => form.load_appearance(&Config::default()),
             }
         }

@@ -85,6 +85,7 @@ Choose **Settings…** from the arrow beside **+** to open the Settings tab.
 - **Profiles** selects which configured profile the **+** button opens. Define shell commands, starting directories, and per-profile schemes in TOML.
 - **Shell prompt** provides presets and a multiline Bash prompt editor.
 - **Keyboard shortcuts** edits the bindings for supported terminal actions.
+- **Interaction** controls the multiline clipboard preview. Veyl asks before pasting text that contains a line break by default when using its Paste action.
 
 **Save** applies the draft and closes the tab. **Discard changes** or the Settings tab's close button drops the draft. You can switch to a terminal tab and return to the draft later. **Reset to defaults** resets the current section in the draft.
 
