@@ -1,4 +1,3 @@
-use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -71,7 +70,7 @@ pub fn startup_file() -> io::Result<PathBuf> {
     let script = format!(
         r#"__veyl_local_prompt=$VEYL_BASH_PROMPT
 unset VEYL_BASH_PROMPT
-if [[ -r ~/.bashrc ]]; then
+if [[ -f ~/.bashrc && -r ~/.bashrc ]]; then
     source ~/.bashrc
 fi
 __veyl_prompt=$__veyl_local_prompt
@@ -94,21 +93,10 @@ pub fn bashrc() -> io::Result<PathBuf> {
 }
 
 pub fn update_bashrc(path: &Path, prompt: Option<&str>) -> io::Result<()> {
-    let (path, mode) = match fs::symlink_metadata(path) {
-        Ok(_) => {
-            let path = fs::canonicalize(path)?;
-            let metadata = fs::metadata(&path)?;
-            if !metadata.is_file() {
-                return Err(io::Error::other(".bashrc must be a regular file"));
-            }
-            (path, metadata.permissions().mode() & 0o777)
-        }
-        Err(err) if err.kind() == io::ErrorKind::NotFound => (path.to_path_buf(), 0o600),
-        Err(err) => return Err(err),
-    };
-    let original = match fs::read_to_string(&path) {
-        Ok(source) => source,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+    let path = crate::config::resolve_settings_path(path)?;
+    let (original, mode) = match crate::config::read_settings(&path) {
+        Ok((source, metadata)) => (source, metadata.permissions().mode() & 0o777),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (String::new(), 0o600),
         Err(err) => return Err(err),
     };
     let updated = edit_bashrc(&original, prompt)?;

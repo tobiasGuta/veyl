@@ -8,6 +8,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
+libc = "0.2"
 gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
 gdk4-wayland = "0.11"
 vte4 = { version = "0.10", features = ["v0_80"] }

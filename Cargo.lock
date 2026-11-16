@@ -708,6 +708,7 @@ version = "0.1.0"
 dependencies = [
  "gdk4-wayland",
  "gtk4",
+ "libc",
  "serde",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit",

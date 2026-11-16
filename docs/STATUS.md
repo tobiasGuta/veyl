@@ -1,5 +1,22 @@
 # Verification status
 
+## Rendered appearance and settings-path hardening
+
+Fedora 45, GNOME Shell and Mutter 51.1, GTK 4.24.1, VTE 0.84.1. An isolated 1920×1080 GNOME Wayland compositor ran with Blur My Shell absent. Tab overflow, split pane geometry, and Settings appearance tests passed at 100%, 125%, and 150%. Wayland traces confirmed the requested fractional scale and a native blur region on each run.
+
+Test-only captures used opaque black, white, and a hard black–white edge as backdrops. At 72% opacity, the edge spanned roughly 30, 38, and 45 physical pixels at the three scales (10%–90%, sampled on a row inside the terminal). With plain translucency at 100% display scale the edge changed in a single pixel step. The opaque 100%-opacity window had the same background over white and black. The solid default-foreground sample stayed at RGB 232, 234, 240 across all captures.
+
+| Default foreground at 100% display scale | Black backdrop | White backdrop |
+| --- | --- | --- |
+| Frosted at 72% opacity | 16.13:1 | 6.27:1 |
+| Plain translucency at 72% opacity | 16.13:1 | 6.27:1 |
+| Plain translucency at 40% opacity | 16.75:1 | 2.17:1 |
+| Solid background at 100% opacity | 15.54:1 | 15.54:1 |
+
+The default setting clears the 4.5:1 reference for the measured samples. Low opacity over bright backgrounds reduces readability. These measurements cover the default foreground, the tested backdrops and scales, and the fixture’s window and text. [Contrast reference](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+
+Settings-path tests verified that Veyl refuses non-regular files, files writable by other users, and unsafe parent directories. A safe dotfiles symlink still points to the original file after saving. The appearance, Bash prompt, smart prompt, profile editor, configuration recovery, and session lifecycle regressions also passed. The independent session and settings security review is still pending.
+
 ## Physical shortcuts and split panes
 
 The user reported that the physical shortcuts they tried passed except for Alt+Shift+Minus. The follow-up registers the shifted Minus key symbol for Split down and translates an existing legacy Split down binding. Fedora GNOME Wayland automated tests checked both split orientations, divider and padding geometry, and the effective shortcut. The user retested the installed build and reported that the physical keyboard shortcuts passed, including the revised Alt+Shift+Minus. Visual comparison of the revised pane styling remains open.
@@ -12,7 +29,7 @@ The GNOME Wayland test opened enough tabs to overflow the titlebar, verified the
 
 The candidate at `707c0de` passed formatting, locked unit tests, Clippy, and the optimized build on Fedora 45. The isolated GNOME Wayland suite passed 14 of 17 display cases, including clipboard actions, Vim, tmux, and repeated PTY lifecycle coverage. Search focus, directional split focus, and confirmed multiline paste each failed in that headless session. Each passed on three reruns on the signed-in GNOME desktop with fresh test settings. The appearance and window control tests also passed with Blur My Shell disabled, and the Wayland trace showed Mutter receiving the native blur region.
 
-The signed-in runs exercised GTK actions, and the isolated run used a separate clipboard. The physical shortcut check passed in the follow-up above. Pointer gestures, Orca, contrast and fractional scaling, and a fresh-account app-grid check still need hands-on verification. The settings and session boundary review in this pass was performed by the implementation author. The independent review required by the release checklist remains open. The PR stack and preview tag remain pending. See [draft release notes](releases/v0.1.0-preview.md).
+The signed-in runs exercised GTK actions, and the isolated run used a separate clipboard. The physical shortcut check passed in the follow-up above. The rendered appearance checks are recorded above. Pointer gestures, Orca, and a fresh-account app-grid check still need hands-on verification. The settings and session boundary review in this pass was performed by the implementation author. The independent review required by the release checklist remains open. The PR stack and preview tag remain pending. See [draft release notes](releases/v0.1.0-preview.md).
 
 ## Pane zoom and directory titles
 
@@ -96,8 +113,8 @@ Fedora 45 Workstation, GNOME Shell and Mutter 51.1, GTK 4.24.1, VTE 0.84.1. The 
 | Physical keyboard shortcuts | PASS | User tested the installed split-pane follow-up on their Fedora GNOME desktop and confirmed the shortcuts passed |
 | Wayland blur and opacity controls | PROTOCOL PASS | With Blur My Shell disabled, GTK sent a rounded blur region to Mutter. The region cleared at 100%, returned at 72%, and cleared when frosted mode was turned off. The slider also accepted 40% |
 | Fallback and persistence | PASS | XWayland reported blur unavailable and allowed tint adjustment after frosted mode was disabled. A Wayland relaunch restored 55% and frosted mode off |
-| Visual blur, text contrast, scaling | NOT RUN | Pixel-level appearance, readability across backdrops, and fractional scaling still need visual review |
-| Security review | PARTIAL | Session ownership and normal child disposal were reviewed. Independent review and settings-path hardening remain open |
+| Visual blur, text contrast, scaling | PASS WITH LIMITATION | Verified rendered native blur and the default foreground over synthetic backdrops at 100%, 125%, and 150%. At 40% opacity, bright backgrounds can make text hard to read |
+| Security review | PARTIAL | Settings-path hardening and PTY lifecycle regressions passed. Independent review is pending |
 
 Run the two display tests using [the testing guide](TESTING.md#wayland-regression-tests). Native runs used `G_DEBUG=fatal-criticals`. A separate appearance smoke run still emitted GDK's duplicate frame-timing warning during Wayland popup presentation. The controls continued to work.
 

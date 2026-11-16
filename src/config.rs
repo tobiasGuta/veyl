@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::io::{self, Read, Write};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -131,8 +131,8 @@ impl Config {
             path: None,
             cause: io::Error::other("No HOME or XDG_CONFIG_HOME is set."),
         })?;
-        let result = match fs::read_to_string(&path) {
-            Ok(contents) => toml::from_str::<Self>(&contents).map_err(io::Error::other),
+        let result = match read_settings(&path) {
+            Ok((contents, _)) => toml::from_str::<Self>(&contents).map_err(io::Error::other),
             Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
             Err(err) => Err(err),
         };
@@ -150,15 +150,9 @@ impl Config {
         renamed: &BTreeMap<String, String>,
     ) -> io::Result<()> {
         let path = Self::path().ok_or_else(|| io::Error::other("no user config directory"))?;
-        // Keep a dotfiles symlink pointing at its original destination.
-        let path = match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.is_symlink() => fs::canonicalize(path)?,
-            Ok(_) => path,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => path,
-            Err(err) => return Err(err),
-        };
-        let source = match fs::read_to_string(&path) {
-            Ok(contents) => contents,
+        let path = resolve_settings_path(&path)?;
+        let source = match read_settings(&path) {
+            Ok((contents, _)) => contents,
             Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
             Err(err) => return Err(err),
         };
@@ -269,12 +263,104 @@ fn merge_table(
     }
 }
 
+fn user_id() -> u32 {
+    // geteuid takes no arguments and has no failure case.
+    unsafe { libc::geteuid() }
+}
+
+fn validate_directory(path: &Path) -> io::Result<()> {
+    for directory in path.ancestors() {
+        let metadata = fs::metadata(directory)?;
+        let writable_by_others = metadata.mode() & 0o022 != 0;
+        let sticky_ancestor = directory != path && metadata.mode() & libc::S_ISVTX != 0;
+        if !metadata.is_dir()
+            || ![0, user_id()].contains(&metadata.uid())
+            || (writable_by_others && !sticky_ancestor)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "Settings path has an unsafe directory: {}",
+                    directory.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_file(metadata: &fs::Metadata, writing: bool) -> io::Result<()> {
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Settings must be a regular file",
+        ));
+    }
+    if !(metadata.uid() == user_id() || (!writing && metadata.uid() == 0))
+        || metadata.mode() & 0o022 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Settings file has unsafe ownership or write permissions",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn resolve_settings_path(path: &Path) -> io::Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_symlink() => {
+            let parent = path
+                .parent()
+                .ok_or_else(|| io::Error::other("invalid settings path"))?;
+            validate_directory(&fs::canonicalize(parent)?)?;
+            fs::canonicalize(path)
+        }
+        Ok(_) => Ok(path.to_owned()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(path.to_owned()),
+        Err(err) => Err(err),
+    }
+}
+
+pub(crate) fn read_settings(path: &Path) -> io::Result<(String, fs::Metadata)> {
+    let path = fs::canonicalize(resolve_settings_path(path)?)?;
+    validate_directory(
+        path.parent()
+            .ok_or_else(|| io::Error::other("invalid settings path"))?,
+    )?;
+    validate_file(&fs::symlink_metadata(&path)?, false)?;
+    // Do not block opening a pipe if a regular file was replaced since resolution.
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+        .open(&path)?;
+    let metadata = file.metadata()?;
+    validate_file(&metadata, false)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok((contents, metadata))
+}
+
 pub(crate) fn write_settings(path: &Path, contents: &str, mode: u32) -> io::Result<()> {
     static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("invalid config path"))?;
-    fs::create_dir_all(parent)?;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)?;
+    let parent = fs::canonicalize(parent)?;
+    validate_directory(&parent)?;
+    let path = parent.join(
+        path.file_name()
+            .ok_or_else(|| io::Error::other("invalid settings filename"))?,
+    );
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => validate_file(&metadata, true)?,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+        Err(err) => return Err(err),
+    }
     let (temp, mut file) = loop {
         let id = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
         let temp = path.with_extension(format!("{}.{id}.tmp", std::process::id()));
@@ -291,10 +377,10 @@ pub(crate) fn write_settings(path: &Path, contents: &str, mode: u32) -> io::Resu
     };
     let result = file
         .write_all(contents.as_bytes())
-        .and_then(|()| file.set_permissions(fs::Permissions::from_mode(mode)))
+        .and_then(|()| file.set_permissions(fs::Permissions::from_mode(mode & !0o022)))
         .and_then(|()| file.sync_all());
     drop(file);
-    let result = result.and_then(|()| fs::rename(&temp, path));
+    let result = result.and_then(|()| fs::rename(&temp, &path));
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     }
@@ -304,6 +390,66 @@ pub(crate) fn write_settings(path: &Path, contents: &str, mode: u32) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::Config;
+
+    struct TestDirectory(std::path::PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("veyl-config-{}", gtk::glib::uuid_string_random()));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn protects_settings_files_and_keeps_safe_dotfile_links() {
+        use std::fs;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let root = TestDirectory::new();
+        let target = root.0.join("dotfile");
+        let link = root.0.join("config.toml");
+        super::write_settings(&target, "blur = true", 0o600).unwrap();
+        symlink(&target, &link).unwrap();
+        let resolved = super::resolve_settings_path(&link).unwrap();
+        super::write_settings(&resolved, "blur = false", 0o600).unwrap();
+        assert_eq!(super::read_settings(&link).unwrap().0, "blur = false");
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(super::read_settings(&link).is_err());
+        assert!(super::write_settings(&target, "replacement", 0o600).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "blur = false");
+
+        let unsafe_parent = root.0.join("shared");
+        fs::create_dir(&unsafe_parent).unwrap();
+        fs::set_permissions(&unsafe_parent, fs::Permissions::from_mode(0o777)).unwrap();
+        let nested = unsafe_parent.join("private");
+        assert!(super::write_settings(&nested.join("config.toml"), "replacement", 0o600).is_err());
+    }
+
+    #[test]
+    fn settings_reject_nonregular_files() {
+        let root = TestDirectory::new();
+        let fifo = root.0.join("settings-pipe");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        assert!(super::read_settings(&fifo).is_err());
+        assert!(super::write_settings(&fifo, "replacement", 0o600).is_err());
+    }
 
     #[test]
     fn default_is_valid() {
