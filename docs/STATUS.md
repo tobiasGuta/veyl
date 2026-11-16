@@ -1,5 +1,9 @@
 # Verification status
 
+## Local installer
+
+On Fedora 45, the installer created an executable, desktop entry and SVG in isolated home and data directories. The desktop entry passed validation and `gtk-launch` started Veyl with a home path containing spaces. Uninstall removed the three installed files. Visual app-grid testing on a fresh desktop account remains open.
+
 ## Command palette
 
 On Fedora 45 GNOME Wayland, the command palette test exercised search, empty results, current shortcut labels, Settings activation, and opening a profile. Physical keyboard navigation remains for manual verification.
