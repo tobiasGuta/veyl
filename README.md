@@ -84,7 +84,7 @@ Choose **Settings…** from the arrow beside **+** to open the Settings tab.
 
 - **Appearance** controls the font, text color, background tint, frosted background, opacity, cursor, padding, and tab progress. The sample terminal previews typography and colors. The default frosted background uses a **72%** dark tint over compositor blur, with fully opaque terminal text.
 - **Color schemes** shows ANSI swatches for built-in and valid custom palettes. The selected scheme applies to terminals that inherit the default. Profiles can override it in TOML.
-- **Profiles** selects which configured profile the **+** button opens. Define shell commands, starting directories, and per-profile schemes in TOML.
+- **Profiles** creates, duplicates, renames, and edits launch profiles. Set the shell executable, starting directory, tab label, and color scheme, and choose which profile the **+** button opens.
 - **Shell prompt** provides presets and a multiline Bash prompt editor.
 - **Keyboard shortcuts** edits the bindings for supported terminal actions.
 - **Interaction** controls the multiline clipboard preview. Veyl asks before pasting text that contains a line break by default when using its Paste action.

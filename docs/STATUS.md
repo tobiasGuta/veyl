@@ -1,5 +1,9 @@
 # Verification status
 
+## Profile editor
+
+The Fedora 45 GNOME Wayland test confirmed profile creation, duplication, renaming, default selection across rename, preservation of unknown profile fields and comments, and launch from the updated menu. Mouse and keyboard navigation remain for manual review.
+
 ## Terminal links
 
 The Fedora 45 GNOME Wayland test detected plain and OSC web links, rejected an OSC file link, and activated Find through the native context action group. Physical pointer gestures and launches into external applications remain open for manual review.

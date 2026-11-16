@@ -2,6 +2,7 @@ mod links;
 mod palette;
 mod panes;
 mod paste;
+mod profiles;
 mod search;
 mod settings;
 mod shortcuts;
@@ -62,6 +63,7 @@ struct State {
     window: glib::WeakRef<ApplicationWindow>,
     tabs_bar: GtkBox,
     tabs_viewport: Viewport,
+    tab_menu: glib::WeakRef<MenuButton>,
     stack: Stack,
     tabs: Vec<Tab>,
     settings: Option<SettingsTab>,
@@ -225,6 +227,7 @@ fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<Re
         window: window.downgrade(),
         tabs_bar,
         tabs_viewport,
+        tab_menu: menu.downgrade(),
         stack,
         tabs: Vec::new(),
         settings: None,
@@ -337,9 +340,9 @@ fn open_settings(state: &Rc<RefCell<State>>, page: &str) {
         let workspace = settings::build(
             &config,
             blur_supported,
-            move |draft| {
+            move |draft, renamed| {
                 if let Some(state) = weak_state.upgrade() {
-                    save_settings(&state, draft)?;
+                    save_settings(&state, draft, &renamed)?;
                 }
                 Ok(())
             },
@@ -479,20 +482,34 @@ fn close_settings(state: &Rc<RefCell<State>>) {
     }
 }
 
-fn save_settings(state: &Rc<RefCell<State>>, draft: Config) -> std::io::Result<()> {
+fn save_settings(
+    state: &Rc<RefCell<State>>,
+    draft: Config,
+    renamed: &std::collections::BTreeMap<String, String>,
+) -> std::io::Result<()> {
     let (original, window) = {
         let ui = state.borrow();
         (ui.config.clone(), ui.window.upgrade())
     };
-    draft.save_changes(&original)?;
+    draft.save_changes(&original, renamed)?;
     if let Some(app) = window.and_then(|window| window.application()) {
         if original.shortcuts != draft.shortcuts {
             shortcuts::apply(&app, &draft);
         }
     }
-    let (terminals, ids) = {
+    let (terminals, ids, menu) = {
         let mut ui = state.borrow_mut();
         ui.config = draft.clone();
+        for pane in ui.tabs.iter_mut().flat_map(|tab| &mut tab.panes) {
+            if let Some(name) = pane
+                .launch
+                .profile
+                .as_ref()
+                .and_then(|name| renamed.get(name))
+            {
+                pane.launch.profile = Some(name.clone());
+            }
+        }
         let terminals = ui
             .tabs
             .iter()
@@ -500,8 +517,14 @@ fn save_settings(state: &Rc<RefCell<State>>, draft: Config) -> std::io::Result<(
             .map(|pane| (pane.terminal.clone(), pane.appearance(&draft)))
             .collect::<Vec<_>>();
         let ids = ui.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>();
-        (terminals, ids)
+        let menu = (original.profiles.keys().ne(draft.profiles.keys()))
+            .then(|| ui.tab_menu.upgrade())
+            .flatten();
+        (terminals, ids, menu)
     };
+    if let Some(menu) = menu {
+        build_tab_menu(&menu, state);
+    }
     update_appearance(state);
     for (terminal, settings) in terminals {
         apply_terminal_appearance(&terminal, &settings);
