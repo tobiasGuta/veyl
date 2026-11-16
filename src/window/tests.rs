@@ -1392,3 +1392,100 @@ fn wayland_smart_prompt() {
     });
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_pane_zoom() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    let first = active_terminal(&state).unwrap();
+    activate(&window, "split-right");
+    let second = active_terminal(&state).unwrap();
+    activate(&window, "split-down");
+    let third = active_terminal(&state).unwrap();
+    wait_for("all split panes mapped", || {
+        (first.is_mapped() && second.is_mapped() && third.is_mapped()).then_some(())
+    });
+    activate(&window, "zoom-pane");
+    assert!(third.is_mapped());
+    assert!(!first.is_mapped() && !second.is_mapped());
+    activate(&window, "increase-font-size");
+    assert!((third.font_scale() - 1.1).abs() < 0.001);
+    assert_eq!(second.font_scale(), 1.0);
+    activate(&window, "reset-font-size");
+    assert_eq!(third.font_scale(), 1.0);
+    activate(&window, "zoom-pane");
+    assert!(first.is_mapped() && second.is_mapped() && third.is_mapped());
+    activate(&window, "zoom-pane");
+    activate(&window, "close-tab");
+    assert_eq!(state.borrow().tabs[0].panes.len(), 2);
+    assert!(first.is_mapped() && second.is_mapped());
+    window.close();
+}
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_directory_titles() {
+    let app = test_application();
+    let config = Config {
+        directory_tab_titles: true,
+        ..Config::default()
+    };
+    let (window, state) = create_window(&app, config);
+    open_tab(&state);
+    window.present();
+    let terminal = active_terminal(&state).unwrap();
+    shell_process(&terminal);
+    let report = |directory| {
+        let path = PathBuf::from(std::env::var_os("HOME").unwrap()).join(directory);
+        fs::create_dir_all(&path).unwrap();
+        let uri = gio::File::for_path(path).uri();
+        terminal.feed(format!("\x1b]7;{uri}\x1b\\").as_bytes());
+    };
+    let (id, label, menu) = {
+        let ui = state.borrow();
+        (
+            ui.tabs[0].id,
+            ui.tabs[0].label.clone(),
+            ui.tabs[0].menu.clone(),
+        )
+    };
+    report("Projects/demo");
+    wait_for("directory title", || {
+        (label.text() == "Projects/demo").then_some(())
+    });
+    let rename = |title| {
+        menu.popdown();
+        gio::prelude::ActionGroupExt::activate_action(
+            &window,
+            "rename-tab",
+            Some(&id.to_variant()),
+        );
+        let dialog = wait_for("rename dialog", || {
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .find_map(|widget| {
+                    widget.downcast::<gtk::Window>().ok().filter(|window| {
+                        window.is_visible() && window.title().as_deref() == Some("Rename tab")
+                    })
+                })
+        });
+        let entry = descendants(dialog.upcast_ref())
+            .into_iter()
+            .find_map(|widget| widget.downcast::<gtk::Entry>().ok())
+            .unwrap();
+        entry.set_text(title);
+        button(dialog.upcast_ref(), "Rename").emit_clicked();
+    };
+    rename("Pinned title");
+    report("Projects/other");
+    wait_for("updated generated title", || {
+        (state.borrow().tabs[0].default_title == "Projects/other").then_some(())
+    });
+    assert_eq!(label.text(), "Pinned title");
+    rename("");
+    assert_eq!(label.text(), "Projects/other");
+    window.close();
+}

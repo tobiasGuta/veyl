@@ -51,6 +51,7 @@ pub struct Config {
     pub profiles: BTreeMap<String, Profile>,
     pub shortcuts: BTreeMap<String, Vec<String>>,
     pub tab_progress: bool,
+    pub directory_tab_titles: bool,
     pub confirm_multiline_paste: bool,
     pub bash_prompt: Option<String>,
 }
@@ -80,6 +81,7 @@ impl Default for Config {
             )]),
             shortcuts: BTreeMap::new(),
             tab_progress: true,
+            directory_tab_titles: false,
             confirm_multiline_paste: true,
             bash_prompt: None,
         }

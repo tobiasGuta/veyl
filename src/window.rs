@@ -37,6 +37,8 @@ struct Tab {
     close: Button,
     label: Label,
     default_title: String,
+    manual_title: Option<String>,
+    zoomed_siblings: Vec<(gtk::Paned, gtk::Widget, i32)>,
     color: Option<gdk::RGBA>,
     menu: gtk::PopoverMenu,
     progress: gtk::ProgressBar,
@@ -531,6 +533,7 @@ fn save_settings(
     }
     for id in ids {
         panes::refresh_progress(state, id);
+        tabs::refresh_title(state, id);
     }
     Ok(())
 }
@@ -746,6 +749,8 @@ fn open_tab_with_launch(state: &Rc<RefCell<State>>, launch: panes::Launch) {
         close,
         label,
         default_title: title,
+        manual_title: None,
+        zoomed_siblings: Vec::new(),
         color: None,
         menu,
         progress,
@@ -758,6 +763,7 @@ fn open_tab_with_launch(state: &Rc<RefCell<State>>, launch: panes::Launch) {
     }
     activate_tab(state, id);
     panes::spawn(state, id, pane_id);
+    tabs::refresh_title(state, id);
 }
 
 fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
@@ -1015,6 +1021,29 @@ fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<Ref
         }
     ));
     window.add_action(&find);
+
+    for (name, adjustment) in [
+        ("increase-font-size", 0.1),
+        ("decrease-font-size", -0.1),
+        ("reset-font-size", 0.0),
+    ] {
+        let action = gio::SimpleAction::new(name, None);
+        action.connect_activate(glib::clone!(
+            #[weak]
+            state,
+            move |_, _| {
+                if let Some(terminal) = active_terminal(&state) {
+                    let scale = if adjustment == 0.0 {
+                        1.0
+                    } else {
+                        (terminal.font_scale() + adjustment).clamp(0.5, 3.0)
+                    };
+                    terminal.set_font_scale(scale);
+                }
+            }
+        ));
+        window.add_action(&action);
+    }
 
     panes::install_actions(window, state);
     tabs::install_actions(window, state);

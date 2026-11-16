@@ -24,6 +24,7 @@ struct Form {
     opacity: gtk::Scale,
     scheme_names: Vec<String>,
     progress: gtk::Switch,
+    directory_titles: gtk::Switch,
     confirm_paste: gtk::Switch,
     padding_x: gtk::SpinButton,
     padding_y: gtk::SpinButton,
@@ -50,6 +51,7 @@ impl Form {
                 .copied()
                 .unwrap_or_default(),
             tab_progress: self.progress.is_active(),
+            directory_tab_titles: self.directory_titles.is_active(),
             confirm_multiline_paste: self.confirm_paste.is_active(),
             blur: self.blur.is_active(),
             opacity: if self.opacity.value() == self.original.opacity * 100.0 {
@@ -97,6 +99,8 @@ impl Form {
         self.blur.set_active(config.blur);
         self.opacity.set_value(config.opacity * 100.0);
         self.progress.set_active(config.tab_progress);
+        self.directory_titles
+            .set_active(config.directory_tab_titles);
         self.padding_x.set_value(f64::from(config.padding_x));
         self.padding_y.set_value(f64::from(config.padding_y));
     }
@@ -192,6 +196,7 @@ pub(super) fn build(
         opacity,
         scheme_names,
         progress: gtk::Switch::new(),
+        directory_titles: gtk::Switch::new(),
         confirm_paste: gtk::Switch::new(),
         font,
         size: gtk::SpinButton::with_range(7.0, 32.0, 1.0),
@@ -228,7 +233,7 @@ pub(super) fn build(
     layout.append(&pages);
 
     let appearance = page(&pages, "appearance", "Appearance", None);
-    let rows: [(&str, &gtk::Widget, &str); 10] = [
+    let rows: [(&str, &gtk::Widget, &str); 11] = [
         ("Font family", form.font.upcast_ref(), "font-desc"),
         ("Font size (pt)", form.size.upcast_ref(), "value"),
         ("Text color", form.foreground.upcast_ref(), "rgba"),
@@ -237,6 +242,11 @@ pub(super) fn build(
         ("Background opacity", form.opacity.upcast_ref(), "value"),
         ("Cursor shape", form.cursor.upcast_ref(), "selected"),
         ("Show tab progress", form.progress.upcast_ref(), "active"),
+        (
+            "Show directory in tab title",
+            form.directory_titles.upcast_ref(),
+            "active",
+        ),
         (
             "Horizontal padding (px)",
             form.padding_x.upcast_ref(),
