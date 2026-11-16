@@ -18,6 +18,7 @@ Match the **appearance** of modern Windows Terminal (Windows 11 dark), not its A
 | Default monospace | Cascadia Mono, 12 pt (font fallback allowed) |
 | Header height | 39 CSS px |
 | Window controls | 28 CSS px wide, flat hover, 7 CSS px line glyphs |
+| Tab controls | 40 × 19 CSS px, shared translucent background, thin plus and chevron |
 | Tab row | 33 CSS px |
 | Terminal inset | 8 CSS px vertically, 10 horizontally |
 | Window radius | 8 CSS px when unmaximized |

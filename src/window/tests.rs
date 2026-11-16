@@ -830,6 +830,32 @@ fn wayland_window_controls() {
     window.present();
     wait_for("window to map", || window.is_mapped().then_some(()));
 
+    let tab_controls = descendants(window.upcast_ref())
+        .into_iter()
+        .find(|widget| widget.has_css_class("veyl-tab-controls"))
+        .unwrap();
+    let (width, _, _, _) = tab_controls.measure(Orientation::Horizontal, -1);
+    let (height, _, _, _) = tab_controls.measure(Orientation::Vertical, -1);
+    assert_eq!((width, height), (40, 19));
+    let add = tab_controls
+        .first_child()
+        .unwrap()
+        .downcast::<Button>()
+        .unwrap();
+    add.emit_clicked();
+    assert_eq!(state.borrow().tabs.len(), 2);
+    let dropdown = tab_controls
+        .last_child()
+        .unwrap()
+        .downcast::<MenuButton>()
+        .unwrap();
+    dropdown.popup();
+    let popover = dropdown.popover().unwrap();
+    wait_for("appearance dropdown to open", || {
+        popover.is_mapped().then_some(())
+    });
+    dropdown.popdown();
+
     let controls = descendants(window.upcast_ref())
         .into_iter()
         .filter_map(|widget| widget.downcast::<gtk::WindowControls>().ok())

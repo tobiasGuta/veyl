@@ -45,7 +45,7 @@ The same harness also runs these tests. Use a fresh test configuration directory
 
 Manually verify pointer drag and drop, physical accelerator dispatch, and divider sizing on your display.
 
-Run `wayland_window_controls` with the same harness to check the three control widths, native maximize and restore, and window close. Compare idle, hover, and maximized glyphs visually at the target display scales.
+Run `wayland_window_controls` with the same harness to check the compact tab control dimensions, new-tab action, Appearance popover, three window control widths, native maximize and restore, and window close. Compare idle, hover, and maximized glyphs visually at the target display scales.
 
 ## Manual GNOME Wayland checklist
 
