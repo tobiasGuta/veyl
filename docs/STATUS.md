@@ -1,5 +1,9 @@
 # Verification status
 
+## Terminal links
+
+The Fedora 45 GNOME Wayland test detected plain and OSC web links, rejected an OSC file link, and activated Find through the native context action group. Physical pointer gestures and launches into external applications remain open for manual review.
+
 ## Multiline paste
 
 The Fedora 45 GNOME Wayland test confirmed that canceling keeps synthetic multiline text out of Bash and confirmation delivers it. The preview applies to Veyl's Paste action. Physical clipboard gestures and foreground-job close confirmation remain open.

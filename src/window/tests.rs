@@ -1234,3 +1234,37 @@ fn wayland_multiline_paste_preview() {
     assert!(!terminal_text(&terminal).contains("TEST-cancelled"));
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_terminal_links() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    let terminal = active_terminal(&state).unwrap();
+    shell_process(&terminal);
+    terminal.feed(b"\x1b[2J\x1b[Hhttps://example.org,\r\n\x1b]8;;https://example.org/explicit\x1b\\label\x1b]8;;\x1b\\\r\n\x1b]8;;file:///tmp/synthetic\x1b\\nope\x1b]8;;\x1b\\");
+    wait_for("URL and OSC hyperlinks displayed", || {
+        terminal_text(&terminal).contains("nope").then_some(())
+    });
+    let point = |row| (2.0, terminal.char_height() as f64 * (row as f64 + 0.5));
+    let (x, y) = point(0);
+    assert_eq!(
+        links::link_at(&terminal, x, y).as_deref(),
+        Some("https://example.org")
+    );
+    let (x, y) = point(1);
+    assert_eq!(
+        links::link_at(&terminal, x, y).as_deref(),
+        Some("https://example.org/explicit")
+    );
+    let (x, y) = point(2);
+    assert!(links::link_at(&terminal, x, y).is_none());
+    assert!(terminal.context_menu_model().is_some());
+    gtk::prelude::WidgetExt::activate_action(&terminal, "terminal.find", None).unwrap();
+    assert!(descendants(window.upcast_ref())
+        .iter()
+        .any(|widget| widget.is_visible() && widget.has_css_class("veyl-find")));
+    window.close();
+}
