@@ -6,10 +6,10 @@
 Gtk.Application (single application id)
   └─ Gtk.ApplicationWindow + Gtk.HeaderBar (custom CSS)
       ├─ tab bar: Gtk.Box containing selectable tab chips
-      ├─ appearance Gtk.Popover (opacity setting)
-      └─ Gtk.Stack: one surface + Vte.Terminal per tab
+      ├─ tab menu Gtk.Popover (profiles and terminal actions)
+      └─ Gtk.Stack: terminal tab surfaces and a Settings workspace
                       │
-                      └─ VTE PTY → $SHELL (or /bin/bash)
+                      └─ VTE PTY per pane → profile shell, $SHELL, or /bin/bash
                                         ├─ editor, ssh, tmux, ...
                                         └─ child processes
 ```
@@ -19,28 +19,36 @@ The terminal engine is upstream VTE4, **not a new ANSI/VT parser**. GTK4 renders
 ## Responsibilities
 
 - src/main.rs: register GTK app id and activation callback.
-- src/window.rs: window/header/tab state, VTE widgets, PTY spawning, appearance controls, shortcuts.
+- src/window.rs: window state, header, actions, and tab activation.
+- src/window/panes.rs: pane layout, VTE widgets, launch handling, and PTY lifecycle.
+- src/window/settings.rs: Settings pages, draft state, previews, and Save and Discard actions.
+- src/prompt.rs: Bash prompt presets, startup helper, and opt-in .bashrc updates.
 - src/config.rs: defaults, normalization, user configuration load/save and unit tests.
 - assets/veyl.css: static design tokens and widget appearance.
 - docs/: product contracts, acceptance tests, unsupported cases, agent instructions.
 
 ## State and lifecycle
 
-One process hosts multiple sessions. Each tab has a unique numeric identifier, GTK surface and VTE Terminal widget, all owned by State. Switching tabs changes the visible Stack child. Tab close removes its GTK widgets; VTE closes its PTY, which normally causes a SIGHUP to interactive foreground processes. Do not assume all descendants terminate. **Codex priority:** audit reentrant GTK signal handlers, ownership cycles, failure handling, and process cleanup under close and shutdown.
+The window owns its shared state. The state holds a weak reference back to the window. Actions and callbacks also use weak references. A tab owns a GTK surface containing one pane or a tree of `GtkPaned` splits. Each pane has its own VTE terminal, search controls, and launch cancellable. Switching tabs changes the visible Stack child and restores focus to that tab's active pane.
 
-VTE spawns the user's `$SHELL` as an executable path, **not** via `sh -c`. It inherits the process environment and starts in `$HOME`; input typed into the terminal executes with the user's normal permissions. Do not setuid, wrap in `sudo`, or automatically elevate.
+Closing a tab removes it from the state before cancelling its panes' launches and unparenting its widgets. Closing an individual pane removes its model entry and promotes its sibling in the split tree. Closing or exiting the final pane closes its tab. Window teardown drains all tabs through the same path. GTK and VTE operations that can emit signals run after the state borrow ends, so a late child-exit signal sees the removed ID and returns. VTE disposes the terminal, signals the child, and releases the PTY. A short-lived application hold lets an in-flight launch finish or cancel when the last window closes.
+
+When spawning fails in an open tab, Veyl displays the error in that tab and disables input. Closing the failed tab uses the ordinary close action.
+
+VTE launches a profile executable or falls back to the user's `$SHELL`. A profile can select a starting folder, tab name, and ANSI scheme. Duplicate and split actions start a separate PTY with the same launch settings and a validated local starting folder. Input typed into the terminal executes with the user's normal permissions.
 
 ## Configuration
 
-Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/config.toml`. Use serde for TOML fields; clamp unreasonable numeric values. Slider saves config to the same file. Settings are scoped to a single user; no global system config is written.
+Path resolution and examples are in the [configuration reference](CONFIGURATION.md). Serde loads TOML and normalization bounds numeric settings. Save in the Settings tab updates the changed fields in the existing document and applies them to the open window. The draft lives with that tab, and its preview terminals have no PTY. Settings are scoped to a single user; no global system config is written.
+
+Veyl launches Bash with a generated startup file when a custom prompt is enabled. The file sources the user's usual `.bashrc`, then registers a hook to set PS1 after existing prompt hooks. Veyl passes the PS1 value as data and clears its transport variable before sourcing the user file. The optional dotfile action independently updates a marked block in `.bashrc` using an atomic write.
 
 ## Rendering constraint
 
-GTK alpha-composited backgrounds are not equivalent to background blur. The source uses CSS background opacity, while VTE is told not to paint a solid background. Text remains opaque. On some compositor/theme combinations, actual transparency may differ; provide an opaque fallback and **test it**.
+The GTK window paints one background tint beneath the header and VTE. VTE skips clearing its default background, leaving glyphs and terminal color cells opaque. On GTK 4.24+ with `ext-background-effect-v1` advertised by the Wayland display, GTK sends the blur region for the window's backdrop filter to the compositor. When that path is unavailable, the default frosted setting uses an opaque tint. Plain background alpha is available by turning off frosted mode.
+
+Veyl checks for the protocol manager when it creates the window. Mutter 51.1 advertises the blur capability when a client binds the manager. The protocol permits capability changes, and GTK 4.24 does not expose those changes through the registry query. Compositors that withdraw blur while keeping the manager advertised can show a plain tint until the user changes the appearance setting.
 
 ## Future abstraction boundaries
 
-- Extract TerminalSession from UI model before split panes.
-- Add shell/profile model only after lifecycle coverage.
-- Add a compositor-capability interface only after a proven Wayland integration path.
 - Unit test non-GUI configuration; use desktop integration testing for PTY/GTK behavior.

@@ -1,40 +1,155 @@
-use crate::config::Config;
+mod links;
+mod palette;
+mod panes;
+mod paste;
+mod profiles;
+mod search;
+mod settings;
+mod shortcuts;
+mod tabs;
+mod themes;
+
+use crate::config::{Config, ConfigLoadError, CursorShape};
+use gdk4_wayland::WaylandDisplay;
+use gtk::accessible::{Property, State as AccessibleState};
 use gtk::gdk;
 use gtk::gio;
 use gtk::glib;
 use gtk::pango;
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Button, HeaderBar, Label, MenuButton,
-    Orientation, PolicyType, Popover, Scale, ScrolledWindow, Stack,
+    Application, ApplicationWindow, Box as GtkBox, Button, HeaderBar, Image, Label, MenuButton,
+    Orientation, PolicyType, Popover, ScrolledWindow, Stack, Viewport,
 };
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use vte4::prelude::*;
-use vte4::{PtyFlags, Terminal};
+use vte4::Terminal;
 
 struct Tab {
     id: u64,
-    terminal: Terminal,
+    panes: Vec<panes::Pane>,
+    active_pane: u64,
+    surface: GtkBox,
     chip: GtkBox,
     select: Button,
+    close: Button,
+    label: Label,
+    default_title: String,
+    manual_title: Option<String>,
+    zoomed_siblings: Vec<(gtk::Paned, gtk::Widget, i32)>,
+    color: Option<gdk::RGBA>,
+    menu: gtk::PopoverMenu,
+    progress: gtk::ProgressBar,
+    progress_timer: Option<glib::SourceId>,
+}
+
+impl Tab {
+    fn active_pane(&self) -> &panes::Pane {
+        self.panes
+            .iter()
+            .find(|pane| pane.id == self.active_pane)
+            .expect("a tab owns its active pane")
+    }
+}
+
+struct SettingsTab {
+    workspace: settings::Workspace,
+    chip: GtkBox,
+    select: Button,
+    return_to: Option<u64>,
 }
 
 struct State {
-    window: ApplicationWindow,
+    window: glib::WeakRef<ApplicationWindow>,
     tabs_bar: GtkBox,
+    tabs_viewport: Viewport,
+    tab_menu: glib::WeakRef<MenuButton>,
     stack: Stack,
     tabs: Vec<Tab>,
+    settings: Option<SettingsTab>,
     next_id: u64,
+    next_pane: u64,
     active: Option<u64>,
+    closing: bool,
     config: Config,
     appearance: gtk::CssProvider,
+    appearance_class: String,
+    blur_supported: bool,
 }
 
 pub fn build(app: &Application) {
-    let config = Config::load();
+    let (config, error) = match Config::load() {
+        Ok(config) => (config, None),
+        Err(err) => (Config::default(), Some(err)),
+    };
+    let (window, state) = create_window(app, config);
+    open_tab(&state);
+    window.present();
+    if let Some(error) = error {
+        show_config_error(&window, error);
+    }
+}
 
+fn show_config_error(window: &ApplicationWindow, error: ConfigLoadError) {
+    let dialog = gtk::AlertDialog::builder()
+        .message("Could not load Veyl settings")
+        .modal(true)
+        .cancel_button(0)
+        .default_button(0);
+    let Some(path) = error.path else {
+        dialog
+            .detail(error.cause.to_string())
+            .build()
+            .show(Some(window));
+        return;
+    };
+    let detail = format!(
+        "Veyl is using defaults. Fix the configuration file and reopen Veyl.\n\n{}\n{}",
+        path.display(),
+        error.cause
+    );
+    dialog
+        .detail(detail)
+        .buttons(["Continue with defaults", "Open config file"])
+        .build()
+        .choose(
+            Some(window),
+            gio::Cancellable::NONE,
+            glib::clone!(
+                #[weak]
+                window,
+                move |response| {
+                    if !matches!(response, Ok(1)) {
+                        return;
+                    }
+                    let file = gio::File::for_path(&path);
+                    gtk::FileLauncher::new(Some(&file)).launch(
+                        Some(&window),
+                        gio::Cancellable::NONE,
+                        glib::clone!(
+                            #[weak]
+                            window,
+                            move |result| {
+                                if let Err(error) = result {
+                                    if !error.matches(gtk::DialogError::Dismissed) {
+                                        gtk::AlertDialog::builder()
+                                            .message("Could not open the configuration file")
+                                            .detail(error.to_string())
+                                            .build()
+                                            .show(Some(&window));
+                                    }
+                                }
+                            }
+                        ),
+                    );
+                }
+            ),
+        );
+}
+
+fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<RefCell<State>>) {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Veyl")
@@ -42,11 +157,18 @@ pub fn build(app: &Application) {
         .default_height(680)
         .build();
     window.add_css_class("veyl-window");
+    let appearance_class = format!("veyl-window-{}", window.id());
+    window.add_css_class(&appearance_class);
 
     let static_css = gtk::CssProvider::new();
-    static_css.load_from_data(include_str!("../assets/veyl.css"));
+    static_css.load_from_string(include_str!("../assets/veyl.css"));
     let appearance = gtk::CssProvider::new();
     let display = gtk::prelude::WidgetExt::display(&window);
+    // GTK 4.24 forwards a backdrop filter to the Wayland compositor when available.
+    let blur_supported = gtk::check_version(4, 24, 0).is_none()
+        && display
+            .downcast_ref::<WaylandDisplay>()
+            .is_some_and(|display| display.query_registry("ext_background_effect_manager_v1"));
     gtk::style_context_add_provider_for_display(
         &display,
         &static_css,
@@ -58,142 +180,447 @@ pub fn build(app: &Application) {
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
     );
 
-    let tabs_bar = GtkBox::new(Orientation::Horizontal, 4);
+    let tabs_bar = GtkBox::new(Orientation::Horizontal, 2);
     tabs_bar.add_css_class("veyl-tabs");
+    let tabs_viewport = Viewport::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    tabs_viewport.set_child(Some(&tabs_bar));
 
     let tabs_scroll = ScrolledWindow::new();
-    tabs_scroll.set_policy(PolicyType::Automatic, PolicyType::Never);
-    tabs_scroll.set_hexpand(true);
-    tabs_scroll.set_min_content_width(180);
-    tabs_scroll.set_child(Some(&tabs_bar));
-
-    let heading = GtkBox::new(Orientation::Horizontal, 8);
-    heading.set_hexpand(true);
-    let logo = Label::new(Some("›_"));
-    logo.add_css_class("veyl-brand");
-    heading.append(&logo);
-    heading.append(&tabs_scroll);
+    tabs_scroll.set_policy(PolicyType::External, PolicyType::Never);
+    tabs_scroll.set_hexpand(false);
+    tabs_scroll.set_min_content_width(100);
+    tabs_scroll.set_max_content_width(640);
+    tabs_scroll.set_propagate_natural_width(true);
+    tabs_scroll.set_child(Some(&tabs_viewport));
 
     let header = HeaderBar::new();
     header.add_css_class("veyl-header");
     header.set_decoration_layout(Some(":minimize,maximize,close"));
     header.set_show_title_buttons(true);
-    header.set_title_widget(Some(&heading));
+    header.set_title_widget(Some(&GtkBox::new(Orientation::Horizontal, 0)));
+
+    let controls = GtkBox::new(Orientation::Horizontal, 0);
+    controls.add_css_class("veyl-tab-controls");
+    controls.set_valign(gtk::Align::Center);
 
     let new_button = Button::from_icon_name("list-add-symbolic");
     new_button.set_tooltip_text(Some("New tab (Ctrl+Shift+T)"));
-    new_button.add_css_class("veyl-header-button");
-    header.pack_end(&new_button);
+    new_button.set_action_name(Some("win.new-tab"));
+    controls.append(&new_button);
 
     let menu = MenuButton::new();
     menu.set_icon_name("pan-down-symbolic");
-    menu.set_tooltip_text(Some("Appearance"));
-    menu.add_css_class("veyl-header-button");
-    header.pack_end(&menu);
+    menu.set_tooltip_text(Some("Tab menu"));
+    menu.update_property(&[Property::Label("Tab menu")]);
+    controls.append(&menu);
+
+    let leading = GtkBox::new(Orientation::Horizontal, 4);
+    leading.append(&tabs_scroll);
+    leading.append(&controls);
+    header.pack_start(&leading);
 
     let stack = Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
-    stack.add_css_class("veyl-stack");
     window.set_titlebar(Some(&header));
     window.set_child(Some(&stack));
 
     let state = Rc::new(RefCell::new(State {
-        window: window.clone(),
+        window: window.downgrade(),
         tabs_bar,
+        tabs_viewport,
+        tab_menu: menu.downgrade(),
         stack,
         tabs: Vec::new(),
+        settings: None,
         next_id: 0,
+        next_pane: 0,
         active: None,
+        closing: false,
         config,
-        appearance,
+        appearance: appearance.clone(),
+        appearance_class,
+        blur_supported,
     }));
 
     update_appearance(&state);
-    build_appearance_menu(&menu, &state);
-
-    {
-        let state = state.clone();
-        new_button.connect_clicked(move |_| open_tab(&state));
-    }
+    build_tab_menu(&menu, &state);
 
     install_actions(&window, app, &state);
-    open_tab(&state);
-    window.present();
+    // The window owns State. Callbacks on its actions and descendants use weak references.
+    window.connect_unrealize({
+        let state = state.clone();
+        move |_| close_all_tabs(&state)
+    });
+    window.connect_destroy(move |_| {
+        gtk::style_context_remove_provider_for_display(&display, &appearance);
+        gtk::style_context_remove_provider_for_display(&display, &static_css);
+    });
+    (window, state)
 }
 
 fn update_appearance(state: &Rc<RefCell<State>>) {
     let current = state.borrow();
-    let color = gdk::RGBA::parse(&current.config.background)
-        .unwrap_or_else(|_| gdk::RGBA::new(0.063, 0.071, 0.102, 1.0));
-    let opacity = current.config.opacity;
-    let css = format!(
-        "window.veyl-window {{ background: transparent; }} \
-         .veyl-stack, .veyl-terminal-surface {{ \
-         background-color: rgba({},{},{},{:.3}); }}",
+    let color = appearance_color(&current.config.background, "#10121a");
+    let (opacity, blur) = current.config.background_style(current.blur_supported);
+    let backdrop_filter = if blur {
+        "backdrop-filter: blur(24px);"
+    } else {
+        ""
+    };
+    let class = &current.appearance_class;
+    let mut css = format!(
+        "window.{class} {{ background-color: rgba({},{},{},{:.3}); {backdrop_filter} }} \
+         window.{class} .veyl-terminal-surface {{ padding: {}px {}px; }}",
         (color.red() * 255.0).round() as u8,
         (color.green() * 255.0).round() as u8,
         (color.blue() * 255.0).round() as u8,
         opacity,
+        current.config.padding_y,
+        current.config.padding_x,
     );
-    current.appearance.load_from_data(&css);
-    for tab in &current.tabs {
-        apply_terminal_settings(&tab.terminal, &current.config);
-    }
+    tabs::append_color_rules(&mut css, &current);
+    let appearance = current.appearance.clone();
+    drop(current);
+    appearance.load_from_string(&css);
 }
 
-fn apply_terminal_settings(terminal: &Terminal, config: &Config) {
-    let fallback = gdk::RGBA::new(0.91, 0.92, 0.94, 1.0);
-    let foreground = gdk::RGBA::parse(&config.foreground).unwrap_or(fallback);
-    terminal.set_color_foreground(&foreground);
-    terminal.set_clear_background(false);
-    terminal.set_scrollback_lines(config.scrollback_lines);
-    let font = pango::FontDescription::from_string(&format!(
-        "{} {}",
-        config.font_family, config.font_size
-    ));
+fn appearance_color(value: &str, fallback: &str) -> gdk::RGBA {
+    let mut color = gdk::RGBA::parse(value).unwrap_or_else(|_| gdk::RGBA::parse(fallback).unwrap());
+    color.set_alpha(1.0);
+    color
+}
+
+fn apply_terminal_appearance(terminal: &Terminal, config: &Config) {
+    let foreground = appearance_color(&config.foreground, "#e8eaf0");
+    let scheme = themes::resolve(config, &config.color_scheme);
+    let palette = scheme
+        .as_ref()
+        .and_then(themes::palette)
+        .unwrap_or_default();
+    let palette = palette.iter().collect::<Vec<_>>();
+    terminal.set_colors(Some(&foreground), None, &palette);
+    let cursor = scheme
+        .as_ref()
+        .and_then(|scheme| scheme.cursor.as_deref())
+        .and_then(|color| gdk::RGBA::parse(color).ok());
+    let selection = scheme
+        .as_ref()
+        .and_then(|scheme| scheme.selection.as_deref())
+        .and_then(|color| gdk::RGBA::parse(color).ok());
+    terminal.set_color_cursor(cursor.as_ref());
+    terminal.set_color_highlight(selection.as_ref());
+    terminal.set_cursor_shape(match config.cursor_shape {
+        CursorShape::Block => vte4::CursorShape::Block,
+        CursorShape::Beam => vte4::CursorShape::Ibeam,
+        CursorShape::Underline => vte4::CursorShape::Underline,
+    });
+    let mut font = pango::FontDescription::new();
+    font.set_family(&config.font_family);
+    font.set_size(i32::from(config.font_size) * pango::SCALE);
     terminal.set_font(Some(&font));
 }
 
-fn build_appearance_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
-    let popover = Popover::new();
-    let body = GtkBox::new(Orientation::Vertical, 12);
-    body.set_margin_top(16);
-    body.set_margin_bottom(16);
-    body.set_margin_start(18);
-    body.set_margin_end(18);
-    body.set_size_request(230, -1);
+fn apply_terminal_settings(terminal: &Terminal, config: &Config) {
+    terminal.set_clear_background(false);
+    terminal.set_scrollback_lines(config.scrollback_lines);
+    apply_terminal_appearance(terminal, config);
+}
 
-    let title = Label::new(Some("Background opacity"));
-    title.set_halign(gtk::Align::Start);
-    let help = Label::new(Some("Blur depends on GNOME compositor support."));
-    help.set_wrap(true);
-    help.add_css_class("veyl-hint");
-    help.set_halign(gtk::Align::Start);
-
-    let slider = Scale::with_range(Orientation::Horizontal, 0.4, 1.0, 0.05);
-    slider.set_draw_value(true);
-    slider.set_digits(2);
-    slider.set_value(state.borrow().config.opacity);
-    {
-        let state = state.clone();
-        slider.connect_value_changed(move |scale| {
-            {
-                let mut ui = state.borrow_mut();
-                ui.config.opacity = scale.value();
-                ui.config.normalize();
-                if let Err(err) = ui.config.save() {
-                    eprintln!("Veyl: unable to save settings: {err}");
+fn open_settings(state: &Rc<RefCell<State>>, page: &str) {
+    let (config, blur_supported, tabs_bar, stack) = {
+        let ui = state.borrow();
+        (
+            ui.config.clone(),
+            ui.blur_supported,
+            ui.tabs_bar.clone(),
+            ui.stack.clone(),
+        )
+    };
+    if state.borrow().settings.is_none() {
+        let weak_state = Rc::downgrade(state);
+        let workspace = settings::build(
+            &config,
+            blur_supported,
+            move |draft, renamed| {
+                if let Some(state) = weak_state.upgrade() {
+                    save_settings(&state, draft, &renamed)?;
                 }
-            }
-            update_appearance(&state);
+                Ok(())
+            },
+            {
+                let weak_state = Rc::downgrade(state);
+                move || {
+                    if let Some(state) = weak_state.upgrade() {
+                        close_settings(&state);
+                    }
+                }
+            },
+        );
+        let chip = GtkBox::new(Orientation::Horizontal, 0);
+        chip.add_css_class("veyl-tab");
+        let select = menu_row("Settings", "emblem-system-symbolic");
+        select.add_css_class("veyl-tab-select");
+        select.connect_clicked(glib::clone!(
+            #[weak]
+            state,
+            move |_| activate_settings(&state)
+        ));
+        let close = Button::from_icon_name("window-close-symbolic");
+        close.add_css_class("veyl-tab-close");
+        close.set_tooltip_text(Some("Close Settings"));
+        close.update_property(&[Property::Label("Close Settings")]);
+        close.connect_clicked(glib::clone!(
+            #[weak]
+            state,
+            move |_| close_settings(&state)
+        ));
+        chip.append(&select);
+        chip.append(&close);
+        tabs_bar.append(&chip);
+        stack.add_child(&workspace.surface);
+        state.borrow_mut().settings = Some(SettingsTab {
+            workspace,
+            chip,
+            select,
+            return_to: None,
         });
     }
+    let pages = state
+        .borrow()
+        .settings
+        .as_ref()
+        .unwrap()
+        .workspace
+        .pages
+        .clone();
+    pages.set_visible_child_name(page);
+    activate_settings(state);
+}
 
-    body.append(&title);
-    body.append(&slider);
-    body.append(&help);
-    popover.set_child(Some(&body));
+fn activate_settings(state: &Rc<RefCell<State>>) {
+    let (stack, surface, chip, select, previous, viewport) = {
+        let mut ui = state.borrow_mut();
+        let active = ui.active.take();
+        let previous = ui
+            .tabs
+            .iter()
+            .find(|tab| Some(tab.id) == active)
+            .map(|tab| (tab.chip.clone(), tab.select.clone()));
+        let settings = ui.settings.as_mut().expect("Settings tab is open");
+        if active.is_some() {
+            settings.return_to = active;
+        }
+        let widgets = (
+            settings.workspace.surface.clone(),
+            settings.chip.clone(),
+            settings.select.clone(),
+        );
+        (
+            ui.stack.clone(),
+            widgets.0,
+            widgets.1,
+            widgets.2,
+            previous,
+            ui.tabs_viewport.clone(),
+        )
+    };
+    if let Some((chip, select)) = previous {
+        chip.remove_css_class("active");
+        select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::False)]);
+    }
+    stack.set_visible_child(&surface);
+    chip.add_css_class("active");
+    select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::True)]);
+    select.grab_focus();
+    reveal_tab(&viewport, &chip);
+    panes::update_focus_actions(state);
+}
+
+fn close_settings(state: &Rc<RefCell<State>>) {
+    let (settings, next, window, tabs_bar, stack) = {
+        let mut ui = state.borrow_mut();
+        let Some(settings) = ui.settings.take() else {
+            return;
+        };
+        let next = ui
+            .tabs
+            .iter()
+            .find(|tab| Some(tab.id) == settings.return_to)
+            .or_else(|| ui.tabs.last())
+            .map(|tab| tab.id);
+        (
+            settings,
+            next,
+            ui.window.upgrade(),
+            ui.tabs_bar.clone(),
+            ui.stack.clone(),
+        )
+    };
+    let was_active = settings.chip.has_css_class("active");
+    tabs_bar.remove(&settings.chip);
+    stack.remove(&settings.workspace.surface);
+    if was_active {
+        if let Some(id) = next {
+            activate_tab(state, id);
+        } else if let Some(window) = window {
+            window.close();
+        }
+    }
+}
+
+fn save_settings(
+    state: &Rc<RefCell<State>>,
+    draft: Config,
+    renamed: &std::collections::BTreeMap<String, String>,
+) -> std::io::Result<()> {
+    let (original, window) = {
+        let ui = state.borrow();
+        (ui.config.clone(), ui.window.upgrade())
+    };
+    draft.save_changes(&original, renamed)?;
+    if let Some(app) = window.and_then(|window| window.application()) {
+        if original.shortcuts != draft.shortcuts {
+            shortcuts::apply(&app, &draft);
+        }
+    }
+    let (terminals, ids, menu) = {
+        let mut ui = state.borrow_mut();
+        ui.config = draft.clone();
+        for pane in ui.tabs.iter_mut().flat_map(|tab| &mut tab.panes) {
+            if let Some(name) = pane
+                .launch
+                .profile
+                .as_ref()
+                .and_then(|name| renamed.get(name))
+            {
+                pane.launch.profile = Some(name.clone());
+            }
+        }
+        let terminals = ui
+            .tabs
+            .iter()
+            .flat_map(|tab| &tab.panes)
+            .map(|pane| (pane.terminal.clone(), pane.appearance(&draft)))
+            .collect::<Vec<_>>();
+        let ids = ui.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>();
+        let menu = (original.profiles.keys().ne(draft.profiles.keys()))
+            .then(|| ui.tab_menu.upgrade())
+            .flatten();
+        (terminals, ids, menu)
+    };
+    if let Some(menu) = menu {
+        build_tab_menu(&menu, state);
+    }
+    update_appearance(state);
+    for (terminal, settings) in terminals {
+        apply_terminal_appearance(&terminal, &settings);
+    }
+    for id in ids {
+        panes::refresh_progress(state, id);
+        tabs::refresh_title(state, id);
+    }
+    Ok(())
+}
+
+fn menu_row(text: &str, icon: &str) -> Button {
+    let row = GtkBox::new(Orientation::Horizontal, 10);
+    row.append(&Image::from_icon_name(icon));
+    let label = Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.set_max_width_chars(27);
+    label.set_ellipsize(pango::EllipsizeMode::End);
+    row.append(&label);
+    let button = Button::new();
+    button.set_child(Some(&row));
+    button.set_tooltip_text(Some(text));
+    button.update_property(&[Property::Label(text)]);
+    button
+}
+
+fn build_tab_menu(menu: &MenuButton, state: &Rc<RefCell<State>>) {
+    let popover = Popover::new();
+    popover.add_css_class("veyl-launch-menu");
+    popover.set_has_arrow(false);
+    popover.set_halign(gtk::Align::Start);
+    let body = GtkBox::new(Orientation::Vertical, 2);
+
+    let config = state.borrow().config.clone();
+    for profile in config.profiles.keys() {
+        let button = menu_row(profile, "utilities-terminal-symbolic");
+        button.set_action_name(Some("win.open-profile"));
+        button.set_action_target_value(Some(&profile.to_variant()));
+        button.connect_clicked(glib::clone!(
+            #[weak]
+            popover,
+            move |_| popover.popdown()
+        ));
+        body.append(&button);
+    }
+    if !config.profiles.is_empty() {
+        body.append(&gtk::Separator::new(Orientation::Horizontal));
+    }
+
+    for (label, icon, action) in [
+        ("Split right", "view-dual-symbolic", "win.split-right"),
+        (
+            "Split down",
+            "view-split-left-right-symbolic",
+            "win.split-down",
+        ),
+        ("Find in terminal", "edit-find-symbolic", "win.find"),
+    ] {
+        let button = menu_row(label, icon);
+        button.set_action_name(Some(action));
+        button.connect_clicked(glib::clone!(
+            #[weak]
+            popover,
+            move |_| popover.popdown()
+        ));
+        body.append(&button);
+    }
+    body.append(&gtk::Separator::new(Orientation::Horizontal));
+    for (label, icon, page) in [
+        ("Settings…", "emblem-system-symbolic", "appearance"),
+        (
+            "Keyboard shortcuts…",
+            "input-keyboard-symbolic",
+            "shortcuts",
+        ),
+    ] {
+        let button = menu_row(label, icon);
+        button.connect_clicked(glib::clone!(
+            #[weak]
+            state,
+            #[weak]
+            popover,
+            move |_| {
+                popover.popdown();
+                open_settings(&state, page);
+            }
+        ));
+        body.append(&button);
+    }
+
+    let palette = menu_row("Command Palette…", "system-search-symbolic");
+    palette.set_action_name(Some("win.command-palette"));
+    palette.connect_clicked(glib::clone!(
+        #[weak]
+        popover,
+        move |_| popover.popdown()
+    ));
+    body.append(&palette);
+
+    let scrolled = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::Never)
+        .vscrollbar_policy(PolicyType::Automatic)
+        .propagate_natural_width(true)
+        .min_content_width(230)
+        .max_content_height(360)
+        .propagate_natural_height(true)
+        .child(&body)
+        .build();
+    popover.set_child(Some(&scrolled));
     menu.set_popover(Some(&popover));
 }
 
@@ -207,134 +634,261 @@ fn shell_path() -> String {
 }
 
 fn open_tab(state: &Rc<RefCell<State>>) {
-    let (id, settings) = {
-        let mut ui = state.borrow_mut();
-        ui.next_id += 1;
-        (ui.next_id, ui.config.clone())
+    let launch = {
+        let ui = state.borrow();
+        panes::Launch::for_profile(&ui.config, &ui.config.default_profile)
     };
+    open_tab_with_launch(state, launch);
+}
 
-    let terminal = Terminal::new();
-    terminal.set_hexpand(true);
-    terminal.set_vexpand(true);
-    terminal.add_css_class("veyl-terminal");
-    apply_terminal_settings(&terminal, &settings);
-
-    let surface = GtkBox::new(Orientation::Vertical, 0);
-    surface.add_css_class("veyl-terminal-surface");
-    surface.append(&terminal);
-
-    let chip = GtkBox::new(Orientation::Horizontal, 0);
-    chip.add_css_class("veyl-tab");
-
-    let select = Button::with_label(&format!("Terminal {id}"));
-    select.add_css_class("veyl-tab-select");
-    select.set_tooltip_text(Some("Activate tab"));
-
-    let close = Button::from_icon_name("window-close-symbolic");
-    close.add_css_class("veyl-tab-close");
-    close.set_tooltip_text(Some("Close tab"));
-
-    chip.append(&select);
-    chip.append(&close);
-
-    {
-        let state = state.clone();
-        select.connect_clicked(move |_| activate_tab(&state, id));
-    }
-    {
-        let state = state.clone();
-        close.connect_clicked(move |_| close_tab(&state, id));
-    }
-
-    {
-        let mut ui = state.borrow_mut();
-        ui.tabs_bar.append(&chip);
-        ui.stack.add_named(&surface, Some(&format!("tab-{id}")));
-        ui.tabs.push(Tab {
-            id,
-            terminal: terminal.clone(),
-            chip,
-            select,
-        });
-    }
-    activate_tab(state, id);
-
-    {
-        let state = state.clone();
-        terminal.connect_child_exited(move |_, _status| close_tab(&state, id));
-    }
-
-    let shell = shell_path();
-    let shell_for_error = shell.clone();
-    let home = std::env::var("HOME").ok();
-    terminal.spawn_async(
-        PtyFlags::DEFAULT,
-        home.as_deref(),
-        &[shell.as_str()],
-        &[],
-        glib::SpawnFlags::DEFAULT,
-        || {},
-        -1,
-        None::<&gio::Cancellable>,
-        move |result| {
-            if let Err(err) = result {
-                eprintln!("Veyl: failed to start shell {shell_for_error}: {err}");
-            }
+#[cfg(test)]
+fn open_tab_with_shell(state: &Rc<RefCell<State>>, shell: &str, home: Option<&str>) {
+    open_tab_with_launch(
+        state,
+        panes::Launch {
+            shell: shell.into(),
+            directory: home.map(str::to_owned),
+            profile: None,
         },
     );
 }
 
-fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
-    let mut ui = state.borrow_mut();
-    if !ui.tabs.iter().any(|tab| tab.id == id) {
-        return;
-    }
-    ui.active = Some(id);
-    ui.stack.set_visible_child_name(&format!("tab-{id}"));
-    for tab in &ui.tabs {
-        if tab.id == id {
-            tab.chip.add_css_class("active");
-            tab.select.add_css_class("active");
-        } else {
-            tab.chip.remove_css_class("active");
-            tab.select.remove_css_class("active");
+fn open_tab_with_launch(state: &Rc<RefCell<State>>, launch: panes::Launch) {
+    let (id, title, tabs_bar, stack) = {
+        let mut ui = state.borrow_mut();
+        if ui.closing {
+            return;
         }
+        ui.next_id += 1;
+        (
+            ui.next_id,
+            launch.title(&ui.config),
+            ui.tabs_bar.clone(),
+            ui.stack.clone(),
+        )
+    };
+    let pane = panes::Pane::new(state, launch);
+    let pane_id = pane.id;
+    let surface = GtkBox::new(Orientation::Vertical, 0);
+    surface.append(&pane.search.overlay);
+
+    let chip = GtkBox::new(Orientation::Horizontal, 0);
+    chip.add_css_class("veyl-tab");
+    chip.add_css_class(&format!("veyl-tab-{id}"));
+
+    let label = Label::new(Some(&title));
+    label.set_ellipsize(pango::EllipsizeMode::End);
+    label.set_max_width_chars(18);
+    label.set_xalign(0.0);
+    let icon = Image::from_icon_name("utilities-terminal-symbolic");
+    icon.set_pixel_size(14);
+    let tab_title = GtkBox::new(Orientation::Horizontal, 8);
+    tab_title.append(&icon);
+    tab_title.append(&label);
+    let select = Button::new();
+    select.set_child(Some(&tab_title));
+    select.add_css_class("veyl-tab-select");
+    select.set_tooltip_text(Some(&title));
+    select.update_property(&[Property::Label(&format!("Tab {id}, {title}"))]);
+
+    let close = Button::from_icon_name("window-close-symbolic");
+    close.add_css_class("veyl-tab-close");
+    close.set_tooltip_text(Some("Close tab"));
+    close.update_property(&[Property::Label(&format!("Close tab {id}, {title}"))]);
+
+    let row = GtkBox::new(Orientation::Horizontal, 0);
+    row.append(&select);
+    row.append(&close);
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&row));
+    let progress = gtk::ProgressBar::new();
+    progress.set_valign(gtk::Align::End);
+    progress.add_css_class("veyl-tab-progress");
+    progress.set_can_target(false);
+    progress.set_visible(false);
+    progress.update_property(&[Property::Label("Terminal progress")]);
+    overlay.add_overlay(&progress);
+    chip.append(&overlay);
+
+    select.connect_clicked(glib::clone!(
+        #[weak]
+        state,
+        move |_| activate_tab(&state, id)
+    ));
+    close.connect_clicked(glib::clone!(
+        #[weak]
+        state,
+        move |_| close_tab(&state, id)
+    ));
+
+    let menu = tabs::context_menu(&select, id);
+    tabs::enable_reorder(state, &chip, &select, id);
+    state.borrow_mut().tabs.push(Tab {
+        id,
+        panes: vec![pane],
+        active_pane: pane_id,
+        surface: surface.clone(),
+        chip: chip.clone(),
+        select,
+        close,
+        label,
+        default_title: title,
+        manual_title: None,
+        zoomed_siblings: Vec::new(),
+        color: None,
+        menu,
+        progress,
+        progress_timer: None,
+    });
+    stack.add_child(&surface);
+    tabs_bar.append(&chip);
+    if let Some(settings) = state.borrow().settings.as_ref() {
+        tabs_bar.reorder_child_after(&settings.chip, Some(&chip));
     }
-    let focused = ui.tabs.iter().find(|tab| tab.id == id).map(|tab| tab.terminal.clone());
-    drop(ui);
-    if let Some(terminal) = focused {
-        terminal.grab_focus();
+    activate_tab(state, id);
+    panes::spawn(state, id, pane_id);
+    tabs::refresh_title(state, id);
+}
+
+fn reveal_tab(viewport: &Viewport, chip: &GtkBox) {
+    viewport.add_tick_callback(glib::clone!(
+        #[weak]
+        chip,
+        #[upgrade_or]
+        glib::ControlFlow::Break,
+        move |viewport, _| {
+            if !chip.has_css_class("active") {
+                return glib::ControlFlow::Break;
+            }
+            // A newly added tab has no bounds until its first layout.
+            if chip.width() == 0 {
+                return glib::ControlFlow::Continue;
+            }
+            if let Some((bounds, adjustment)) = viewport
+                .child()
+                .and_then(|bar| chip.compute_bounds(&bar))
+                .zip(viewport.hadjustment())
+            {
+                let start = f64::from(bounds.x());
+                adjustment.clamp_page(start, start + f64::from(bounds.width()));
+            }
+            glib::ControlFlow::Break
+        }
+    ));
+}
+
+fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
+    let (chip, select, surface, terminal, previous, stack, viewport) = {
+        let mut ui = state.borrow_mut();
+        let Some(tab) = ui.tabs.iter().find(|tab| tab.id == id) else {
+            return;
+        };
+        let previous = ui
+            .tabs
+            .iter()
+            .find(|tab| Some(tab.id) == ui.active && tab.id != id);
+        let widgets = (
+            tab.chip.clone(),
+            tab.select.clone(),
+            tab.surface.clone(),
+            tab.active_pane().terminal.clone(),
+            previous
+                .map(|tab| (tab.chip.clone(), tab.select.clone()))
+                .or_else(|| {
+                    ui.settings
+                        .as_ref()
+                        .map(|tab| (tab.chip.clone(), tab.select.clone()))
+                }),
+            ui.stack.clone(),
+            ui.tabs_viewport.clone(),
+        );
+        ui.active = Some(id);
+        widgets
+    };
+    if let Some((chip, select)) = previous {
+        chip.remove_css_class("active");
+        select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::False)]);
     }
+    stack.set_visible_child(&surface);
+    chip.add_css_class("active");
+    select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::True)]);
+
+    reveal_tab(&viewport, &chip);
+    terminal.grab_focus();
+    panes::update_focus_actions(state);
 }
 
 fn close_tab(state: &Rc<RefCell<State>>, id: u64) {
-    let (next, should_close) = {
+    let (tab, next, window, tabs_bar, stack) = {
         let mut ui = state.borrow_mut();
         let Some(index) = ui.tabs.iter().position(|tab| tab.id == id) else {
             return;
         };
         let tab = ui.tabs.remove(index);
-        ui.tabs_bar.remove(&tab.chip);
-        // The GTK Stack owns the surface. The VTE widget will be released with it,
-        // closing the PTY; the child may receive SIGHUP (not guaranteed).
-        if let Some(surface) = ui.stack.child_by_name(&format!("tab-{id}")) {
-            ui.stack.remove(&surface);
-        }
         let next = if ui.active == Some(id) {
+            ui.active = None;
             ui.tabs.last().map(|tab| tab.id)
         } else {
             None
         };
-        if ui.active == Some(id) {
-            ui.active = next;
-        }
-        (next, ui.tabs.is_empty())
+        let window = if ui.tabs.is_empty() && ui.settings.is_none() {
+            ui.closing = true;
+            ui.window.upgrade()
+        } else {
+            None
+        };
+        (tab, next, window, ui.tabs_bar.clone(), ui.stack.clone())
     };
-    if should_close {
-        state.borrow().window.close();
+    let had_color = tab.color.is_some();
+    detach_tab(tab, &tabs_bar, &stack);
+    if had_color {
+        update_appearance(state);
+    }
+    if let Some(window) = window {
+        window.close();
     } else if let Some(id) = next {
         activate_tab(state, id);
+    } else if state.borrow().active.is_none()
+        && state.borrow().tabs.is_empty()
+        && state.borrow().settings.is_some()
+    {
+        activate_settings(state);
     }
+}
+
+fn close_all_tabs(state: &Rc<RefCell<State>>) {
+    let (tabs, settings, tabs_bar, stack) = {
+        let mut ui = state.borrow_mut();
+        ui.closing = true;
+        ui.active = None;
+        (
+            std::mem::take(&mut ui.tabs),
+            ui.settings.take(),
+            ui.tabs_bar.clone(),
+            ui.stack.clone(),
+        )
+    };
+    if let Some(settings) = settings {
+        tabs_bar.remove(&settings.chip);
+        stack.remove(&settings.workspace.surface);
+    }
+    for tab in tabs {
+        detach_tab(tab, &tabs_bar, &stack);
+    }
+}
+
+fn detach_tab(tab: Tab, tabs_bar: &GtkBox, stack: &Stack) {
+    if let Some(timer) = tab.progress_timer {
+        timer.remove();
+    }
+    for pane in &tab.panes {
+        pane.spawn.cancel();
+    }
+    tab.menu.popdown();
+    tab.menu.unparent();
+    // Let VTE dispose the terminal, signal its child, and release the PTY.
+    tabs_bar.remove(&tab.chip);
+    stack.remove(&tab.surface);
 }
 
 fn active_terminal(state: &Rc<RefCell<State>>) -> Option<Terminal> {
@@ -342,53 +896,152 @@ fn active_terminal(state: &Rc<RefCell<State>>) -> Option<Terminal> {
     ui.tabs
         .iter()
         .find(|tab| Some(tab.id) == ui.active)
-        .map(|tab| tab.terminal.clone())
+        .map(|tab| tab.active_pane().terminal.clone())
 }
 
 fn install_actions(window: &ApplicationWindow, app: &Application, state: &Rc<RefCell<State>>) {
+    let settings = gio::SimpleAction::new("settings", None);
+    settings.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            open_settings(&state, "appearance");
+        }
+    ));
+    window.add_action(&settings);
+    let palette = gio::SimpleAction::new("command-palette", None);
+    palette.connect_activate(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        state,
+        move |_, _| {
+            let profiles = state.borrow().config.profiles.clone();
+            palette::show(&window, &profiles);
+        }
+    ));
+    window.add_action(&palette);
+
     let new_tab = gio::SimpleAction::new("new-tab", None);
-    {
-        let state = state.clone();
-        new_tab.connect_activate(move |_, _| open_tab(&state));
-    }
+    new_tab.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| open_tab(&state)
+    ));
     window.add_action(&new_tab);
 
-    let close = gio::SimpleAction::new("close-tab", None);
-    {
-        let state = state.clone();
-        close.connect_activate(move |_, _| {
-            let active_id = state.borrow().active;
-            if let Some(id) = active_id {
-                close_tab(&state, id);
+    let profile = gio::SimpleAction::new("open-profile", Some(&String::static_variant_type()));
+    profile.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, target| {
+            let Some(name) = target.and_then(glib::Variant::str) else {
+                return;
+            };
+            let launch = {
+                let ui = state.borrow();
+                ui.config
+                    .profiles
+                    .contains_key(name)
+                    .then(|| panes::Launch::for_profile(&ui.config, name))
+            };
+            if let Some(launch) = launch {
+                open_tab_with_launch(&state, launch);
             }
-        });
-    }
+        }
+    ));
+    window.add_action(&profile);
+
+    let close = gio::SimpleAction::new("close-tab", None);
+    close.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            if state.borrow().active.is_none() {
+                close_settings(&state);
+            } else {
+                panes::close_active(&state);
+            }
+        }
+    ));
     window.add_action(&close);
 
     let copy = gio::SimpleAction::new("copy", None);
-    {
-        let state = state.clone();
-        copy.connect_activate(move |_, _| {
+    copy.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
             if let Some(terminal) = active_terminal(&state) {
                 terminal.copy_clipboard_format(vte4::Format::Text);
             }
-        });
-    }
+        }
+    ));
     window.add_action(&copy);
 
     let paste = gio::SimpleAction::new("paste", None);
-    {
-        let state = state.clone();
-        paste.connect_activate(move |_, _| {
+    paste.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
             if let Some(terminal) = active_terminal(&state) {
-                terminal.paste_clipboard();
+                let confirm = state.borrow().config.confirm_multiline_paste;
+                paste::from_clipboard(&terminal, confirm);
             }
-        });
-    }
+        }
+    ));
     window.add_action(&paste);
 
-    app.set_accels_for_action("win.new-tab", &["<Primary><Shift>t"]);
-    app.set_accels_for_action("win.close-tab", &["<Primary><Shift>w"]);
-    app.set_accels_for_action("win.copy", &["<Primary><Shift>c"]);
-    app.set_accels_for_action("win.paste", &["<Primary><Shift>v"]);
+    let find = gio::SimpleAction::new("find", None);
+    find.connect_activate(glib::clone!(
+        #[weak]
+        state,
+        move |_, _| {
+            let active = {
+                let ui = state.borrow();
+                ui.tabs
+                    .iter()
+                    .find(|tab| Some(tab.id) == ui.active)
+                    .map(|tab| {
+                        (
+                            tab.active_pane().search.clone(),
+                            tab.active_pane().terminal.clone(),
+                        )
+                    })
+            };
+            if let Some((search, terminal)) = active {
+                search.show(&terminal);
+            }
+        }
+    ));
+    window.add_action(&find);
+
+    for (name, adjustment) in [
+        ("increase-font-size", 0.1),
+        ("decrease-font-size", -0.1),
+        ("reset-font-size", 0.0),
+    ] {
+        let action = gio::SimpleAction::new(name, None);
+        action.connect_activate(glib::clone!(
+            #[weak]
+            state,
+            move |_, _| {
+                if let Some(terminal) = active_terminal(&state) {
+                    let scale = if adjustment == 0.0 {
+                        1.0
+                    } else {
+                        (terminal.font_scale() + adjustment).clamp(0.5, 3.0)
+                    };
+                    terminal.set_font_scale(scale);
+                }
+            }
+        ));
+        window.add_action(&action);
+    }
+
+    panes::install_actions(window, state);
+    tabs::install_actions(window, state);
+    shortcuts::apply(app, &state.borrow().config);
 }
+
+#[cfg(test)]
+mod tests;

@@ -3,6 +3,7 @@ Type=Application
 Name=Veyl
 Comment=Dark translucent Fedora terminal
 Exec=veyl
+Icon=io.github.tobiasGuta.Veyl
 Terminal=false
 Categories=System;TerminalEmulator;
 StartupNotify=true

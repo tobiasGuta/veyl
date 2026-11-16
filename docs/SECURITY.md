@@ -14,12 +14,15 @@ Veyl is a user-level terminal emulator, **not a sandbox**. Commands executed in 
 - Settings must be user-scoped; avoid insecure world-writable shared state, backups containing credentials, or plaintext session recording.
 - In future SSH/workspace features, never embed private keys, tokens or passwords in repository files.
 
+## Session teardown
+
+- Window actions and terminal callbacks hold weak references to the session state. Tab and window close cancel pending launches and release terminal widgets through VTE's disposal path.
+- Shell launch errors are shown as text in the failed tab. Control characters from the error text are stripped before display.
+- Tests observed Bash and an ordinary foreground `sleep` exit when their tab or window closed. Detached jobs and processes that ignore hangup can outlive the terminal. Session close does not guarantee termination of a process tree.
+
 ## Known v0.1 gaps to audit
 
-- GTK signal handlers and strong reference cycles; use Weak references when required.
-- Closing PTY surfaces can signal a process without proving all descendants exited. No blanket assurance against orphaned jobs.
-- Settings writes are atomic rename but permissions/symlinks and temporary-file collisions need hardening.
-- No UI error dialog when shell spawn fails; currently stderr only.
+- Settings reads reject non-regular files and files writable by other users. Writes check file ownership and directory permissions, then use an exclusive owner-only temporary file and atomic rename. Symlinked settings files are supported when the link and destination directories pass checks. Independent review of these changes and the session lifecycle remains open.
 - Clipboard pastes may contain control sequences, newlines, and secrets; future safety prompts should not break existing terminal behavior.
 - Translucent content can reveal desktop material behind the window; accessibility and shared-screen privacy need consideration.
 

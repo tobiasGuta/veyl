@@ -1,0 +1,197 @@
+use std::io;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+const BEGIN: &str = "# BEGIN VEYL BASH PROMPT";
+const END: &str = "# END VEYL BASH PROMPT";
+const HOOK: &str = r#"if ! declare -F __veyl_set_prompt >/dev/null; then
+    __veyl_set_prompt() { PS1=$__veyl_prompt; return "$1"; }
+    PROMPT_COMMAND+=('__veyl_set_prompt "$?"')
+fi
+"#;
+
+const SMART: &str = include_str!("../assets/smart-prompt.bash");
+
+pub const SMART_SEGMENTS: [(&str, &str); 7] = [
+    ("Full path", r" \[\e[94m\]${PWD}\[\e[0m\]"),
+    (
+        "Git branch and status",
+        r"\[\e[93m\]$(__veyl_smart_git)\[\e[0m\]",
+    ),
+    (
+        "Python virtual environment",
+        r"\[\e[92m\]${VIRTUAL_ENV:+ [py:${VIRTUAL_ENV##*/}]}\[\e[0m\]",
+    ),
+    ("Exit status", r"\[\e[91m\]${__veyl_smart_exit-}\[\e[0m\]"),
+    ("Command duration", r"${__veyl_smart_duration-}"),
+    (
+        "SSH hostname",
+        r"\[\e[35m\]${SSH_CONNECTION:+ [ssh:${HOSTNAME%%.*}]}\[\e[0m\]",
+    ),
+    (
+        "Root indicator",
+        r"\[$__veyl_smart_mark_color\]$__veyl_smart_mark\[\e[0m\]",
+    ),
+];
+
+pub fn smart_prompt(enabled: &[bool; 7]) -> String {
+    let mut prompt = r"\[\e[1;36m\]PS\[\e[0m\]".to_owned();
+    for ((_, segment), enabled) in SMART_SEGMENTS[..6].iter().zip(enabled) {
+        if *enabled {
+            prompt.push_str(segment);
+        }
+    }
+    prompt.push(' ');
+    prompt.push_str(if enabled[6] { SMART_SEGMENTS[6].1 } else { ">" });
+    prompt.push_str(r"\040");
+    prompt
+}
+
+pub fn preview_template(text: &str) -> String {
+    let mut sample = text.replace(r"\[\e[1;36m\]PS\[\e[0m\]", "PS");
+    for ((_, segment), rendering) in SMART_SEGMENTS.iter().zip([
+        " ~/Projects",
+        " [git:main* ↑1]",
+        " [py:.venv]",
+        " [exit:1]",
+        " [2.4s]",
+        " [ssh:fedora]",
+        ">",
+    ]) {
+        sample = sample.replace(segment, rendering);
+    }
+    sample.replace(r"\040", " ")
+}
+
+pub fn startup_file() -> io::Result<PathBuf> {
+    let path = crate::config::Config::path()
+        .ok_or_else(|| io::Error::other("no user config directory"))?
+        .with_file_name("bash-prompt-init.bash");
+    let script = format!(
+        r#"__veyl_local_prompt=$VEYL_BASH_PROMPT
+unset VEYL_BASH_PROMPT
+if [[ -f ~/.bashrc && -r ~/.bashrc ]]; then
+    source ~/.bashrc
+fi
+__veyl_prompt=$__veyl_local_prompt
+unset __veyl_local_prompt
+if [[ $__veyl_prompt == *'__veyl_smart_'* ]]; then
+{SMART}
+    __veyl_smart_install
+fi
+{HOOK}"#
+    );
+    crate::config::write_settings(&path, &script, 0o600)?;
+    Ok(path)
+}
+
+pub fn bashrc() -> io::Result<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(|home| PathBuf::from(home).join(".bashrc"))
+        .ok_or_else(|| io::Error::other("HOME is unavailable"))
+}
+
+pub fn update_bashrc(path: &Path, prompt: Option<&str>) -> io::Result<()> {
+    let path = crate::config::resolve_settings_path(path)?;
+    let (original, mode) = match crate::config::read_settings(&path) {
+        Ok((source, metadata)) => (source, metadata.permissions().mode() & 0o777),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (String::new(), 0o600),
+        Err(err) => return Err(err),
+    };
+    let updated = edit_bashrc(&original, prompt)?;
+    if updated != original {
+        crate::config::write_settings(&path, &updated, mode)?;
+    }
+    Ok(())
+}
+
+fn edit_bashrc(original: &str, prompt: Option<&str>) -> io::Result<String> {
+    let mut markers = original
+        .split_inclusive('\n')
+        .scan(0, |offset, line| {
+            let start = *offset;
+            *offset += line.len();
+            Some((start, *offset, line.trim_end_matches('\n')))
+        })
+        .filter(|(_, _, line)| matches!(*line, BEGIN | END));
+
+    let (range, at_end) = match (markers.next(), markers.next(), markers.next()) {
+        (None, None, None) => (original.len()..original.len(), true),
+        (Some((start, _, BEGIN)), Some((_, end, END)), None) => {
+            // Include the newline Veyl prepended when it created the block.
+            let at_end = end == original.len();
+            (start.saturating_sub(usize::from(at_end))..end, at_end)
+        }
+        _ => {
+            return Err(io::Error::other(
+                "Veyl's .bashrc prompt markers are incomplete or duplicated",
+            ))
+        }
+    };
+    let mut result = original.to_owned();
+    let block = match prompt {
+        Some(value) => {
+            validate(value)?;
+            let mut quoted = String::new();
+            for ch in value.chars() {
+                match ch {
+                    '\\' => quoted.push_str(r"\\"),
+                    '\'' => quoted.push_str(r"\'"),
+                    '\n' => quoted.push_str(r"\n"),
+                    '\r' => quoted.push_str(r"\r"),
+                    _ => quoted.push(ch),
+                }
+            }
+            let smart = if value.contains("__veyl_smart_") {
+                format!("{SMART}\n__veyl_smart_install\n")
+            } else {
+                String::new()
+            };
+            format!(
+                "\n{BEGIN}\nif [[ $- == *i* ]]; then\n__veyl_prompt=$'{quoted}'\n{smart}{HOOK}fi\n{END}\n"
+            )
+        }
+        None => String::new(),
+    };
+    let block = if at_end {
+        &block
+    } else {
+        block.strip_prefix('\n').unwrap_or(&block)
+    };
+    result.replace_range(range, block);
+    Ok(result)
+}
+
+pub fn validate(prompt: &str) -> io::Result<()> {
+    if prompt.len() > 8192 || prompt.contains('\0') {
+        return Err(io::Error::other(
+            "Enter a Bash prompt of at most 8 KiB, without NUL characters",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bashrc_updates_only_the_managed_block() {
+        for original in ["", "# user settings", "# user settings\n"] {
+            let prompt = r"\u:\w \' $ ";
+            let installed = edit_bashrc(original, Some(prompt)).unwrap();
+            assert!(installed.starts_with(original));
+            assert_eq!(edit_bashrc(&installed, Some(prompt)).unwrap(), installed);
+            let updated = edit_bashrc(&installed, Some("custom\n❯ ")).unwrap();
+            assert!(updated.contains(r"custom\n❯ "));
+            assert_eq!(edit_bashrc(&updated, None).unwrap(), original);
+        }
+        let installed = edit_bashrc("# existing", Some("❯ ")).unwrap();
+        assert_eq!(
+            edit_bashrc(&(installed + "# appended"), None).unwrap(),
+            "# existing\n# appended"
+        );
+        assert!(edit_bashrc(BEGIN, None).is_err());
+    }
+}
