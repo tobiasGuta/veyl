@@ -1,3 +1,4 @@
+use super::profiles;
 use super::{appearance_color, apply_terminal_appearance, shortcuts, themes};
 use crate::config::{Config, CursorShape};
 use gtk::accessible::Property;
@@ -21,8 +22,6 @@ struct Form {
     scheme: gtk::ListBox,
     blur: gtk::Switch,
     opacity: gtk::Scale,
-    profile: gtk::DropDown,
-    profile_names: Vec<String>,
     scheme_names: Vec<String>,
     progress: gtk::Switch,
     confirm_paste: gtk::Switch,
@@ -58,11 +57,6 @@ impl Form {
             } else {
                 self.opacity.value() / 100.0
             },
-            default_profile: self
-                .profile_names
-                .get(self.profile.selected() as usize)
-                .cloned()
-                .unwrap_or_default(),
             color_scheme: self
                 .scheme_names
                 .get(
@@ -83,7 +77,6 @@ impl Form {
             .set_active(config.confirm_multiline_paste);
         self.load_appearance(config);
         self.select_scheme(&config.color_scheme);
-        self.select_profile(&config.default_profile);
     }
 
     fn load_appearance(&self, config: &Config) {
@@ -118,15 +111,6 @@ impl Form {
             .select_row(self.scheme.row_at_index(index as i32).as_ref());
     }
 
-    fn select_profile(&self, name: &str) {
-        let index = self
-            .profile_names
-            .iter()
-            .position(|item| item == name)
-            .unwrap_or_default();
-        self.profile.set_selected(index as u32);
-    }
-
     fn refresh_preview(&self) {
         let draft = self.draft();
         apply_terminal_appearance(&self.preview, &draft);
@@ -156,7 +140,7 @@ pub(super) struct Workspace {
 pub(super) fn build(
     original: &Config,
     blur_supported: bool,
-    save: impl Fn(Config) -> io::Result<()> + 'static,
+    save: impl Fn(Config, std::collections::BTreeMap<String, String>) -> io::Result<()> + 'static,
     dismiss: impl Fn() + Clone + 'static,
 ) -> Workspace {
     let color_dialog = gtk::ColorDialog::builder().with_alpha(false).build();
@@ -197,28 +181,6 @@ pub(super) fn build(
         item.append(&label);
         scheme.append(&item);
     }
-    let mut profile_names = vec![String::new()];
-    profile_names.extend(
-        original
-            .profiles
-            .keys()
-            .filter(|name| !name.is_empty())
-            .cloned(),
-    );
-    if !profile_names.contains(&original.default_profile) {
-        profile_names.push(original.default_profile.clone());
-    }
-    let profile_labels = profile_names
-        .iter()
-        .map(|name| {
-            if name.is_empty() {
-                "System shell"
-            } else {
-                name.as_str()
-            }
-        })
-        .collect::<Vec<_>>();
-    let profile = gtk::DropDown::from_strings(&profile_labels);
     let opacity = gtk::Scale::with_range(gtk::Orientation::Horizontal, 40.0, 100.0, 1.0);
     opacity.set_width_request(135);
     opacity.set_draw_value(true);
@@ -228,8 +190,6 @@ pub(super) fn build(
         scheme,
         blur: gtk::Switch::new(),
         opacity,
-        profile,
-        profile_names,
         scheme_names,
         progress: gtk::Switch::new(),
         confirm_paste: gtk::Switch::new(),
@@ -374,7 +334,7 @@ pub(super) fn build(
         "Profiles",
         Some("The + button opens the default profile. Open other profiles from the tab menu."),
     );
-    append_row(&profiles, "Default profile", form.profile.upcast_ref());
+    let profile_editor = profiles::Editor::new(&profiles, original);
     let prompt_page = page(
         &pages,
         "prompt",
@@ -413,12 +373,14 @@ pub(super) fn build(
         #[weak]
         pages,
         #[weak]
+        profile_editor,
+        #[weak]
         bash_prompt,
         move |_| {
             match pages.visible_child_name().as_deref() {
                 Some("shortcuts") => editor.reset(),
                 Some("schemes") => form.select_scheme(""),
-                Some("profiles") => form.select_profile(""),
+                Some("profiles") => profile_editor.default.set_selected(0),
                 Some("prompt") => bash_prompt.set_text(""),
                 Some("interaction") => form
                     .confirm_paste
@@ -463,7 +425,20 @@ pub(super) fn build(
                 return;
             }
             draft.bash_prompt = (!prompt.is_empty()).then_some(prompt);
-            match save(draft) {
+            let profile_edit = match profile_editor.draft() {
+                Ok(edit) => edit,
+                Err(message) => {
+                    if let Some(pages) = pages.upgrade() {
+                        pages.set_visible_child_name("profiles");
+                    }
+                    error.set_text(&message);
+                    error.set_visible(true);
+                    return;
+                }
+            };
+            draft.profiles = profile_edit.profiles;
+            draft.default_profile = profile_edit.default;
+            match save(draft, profile_edit.renamed) {
                 Ok(()) => dismiss(),
                 Err(message) => {
                     error.set_text(&format!("Could not save settings. {message}"));
@@ -669,7 +644,7 @@ fn description(text: &str) -> gtk::Label {
     label
 }
 
-fn append_row(body: &gtk::Box, text: &str, control: &gtk::Widget) {
+pub(super) fn append_row(body: &gtk::Box, text: &str, control: &gtk::Widget) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     row.add_css_class("veyl-settings-row");
     let label = description(text);

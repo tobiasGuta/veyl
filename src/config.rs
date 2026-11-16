@@ -142,7 +142,11 @@ impl Config {
         Ok(config)
     }
 
-    pub fn save_changes(&self, previous: &Self) -> io::Result<()> {
+    pub fn save_changes(
+        &self,
+        previous: &Self,
+        renamed: &BTreeMap<String, String>,
+    ) -> io::Result<()> {
         let path = Self::path().ok_or_else(|| io::Error::other("no user config directory"))?;
         // Keep a dotfiles symlink pointing at its original destination.
         let path = match fs::symlink_metadata(&path) {
@@ -156,18 +160,51 @@ impl Config {
             Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
             Err(err) => return Err(err),
         };
-        let content = self.update_document(previous, &source)?;
+        let content = self.update_document(previous, &source, renamed)?;
         if content != source {
             write_settings(&path, &content, 0o600)?;
         }
         Ok(())
     }
 
-    fn update_document(&self, previous: &Self, source: &str) -> io::Result<String> {
+    fn update_document(
+        &self,
+        previous: &Self,
+        source: &str,
+        renamed: &BTreeMap<String, String>,
+    ) -> io::Result<String> {
         let mut document = source
             .parse::<toml_edit::DocumentMut>()
             .map_err(io::Error::other)?;
-        let previous = toml::Table::try_from(previous).map_err(io::Error::other)?;
+        let mut previous = previous.clone();
+        if let Some(profiles) = document
+            .get_mut("profiles")
+            .and_then(toml_edit::Item::as_table_like_mut)
+        {
+            let moved = renamed
+                .iter()
+                .filter_map(|(old, new)| profiles.remove(old).map(|item| (old, new, item)))
+                .collect::<Vec<_>>();
+            let moved_values = moved
+                .iter()
+                .filter_map(|(old, new, _)| {
+                    previous
+                        .profiles
+                        .remove(*old)
+                        .map(|profile| ((*new).clone(), profile))
+                })
+                .collect::<Vec<_>>();
+            for (_, new, item) in moved {
+                if profiles.contains_key(new) {
+                    return Err(io::Error::other(format!(
+                        "Profile {new} already exists in the configuration file"
+                    )));
+                }
+                profiles.insert(new, item);
+            }
+            previous.profiles.extend(moved_values);
+        }
+        let previous = toml::Table::try_from(&previous).map_err(io::Error::other)?;
         let current = toml::Table::try_from(self).map_err(io::Error::other)?;
         let rendered = toml::to_string(self)
             .map_err(io::Error::other)?
@@ -308,14 +345,18 @@ mod tests {
             padding_x: 14,
             ..previous.clone()
         };
-        let result = draft.update_document(&previous, source).unwrap();
+        let result = draft
+            .update_document(&previous, source, &Default::default())
+            .unwrap();
         assert!(result.starts_with("# My settings\nfont_size = 16 # points\nopacity = 0.95"));
         assert!(result.contains("[future]\nflag = true"));
         let saved: Config = toml::from_str(&result).unwrap();
         assert_eq!(saved.font_size, 16);
         assert_eq!(saved.padding_x, 14);
         assert_eq!(saved.opacity, 0.95);
-        assert!(draft.update_document(&previous, "font_size = [").is_err());
+        assert!(draft
+            .update_document(&previous, "font_size = [", &Default::default())
+            .is_err());
     }
 
     #[test]
@@ -326,7 +367,9 @@ mod tests {
         edited
             .shortcuts
             .insert("copy".into(), vec!["<Primary><Shift>y".into()]);
-        let output = edited.update_document(&previous, source).unwrap();
+        let output = edited
+            .update_document(&previous, source, &Default::default())
+            .unwrap();
         assert!(output.contains("# clipboard"));
         assert!(output.contains("future = [] # leave it"));
         assert!(output.contains("directory = \"~/Projects\" # workspace"));

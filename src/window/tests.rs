@@ -1268,3 +1268,75 @@ fn wayland_terminal_links() {
         .any(|widget| widget.is_visible() && widget.has_css_class("veyl-find")));
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland, an isolated Bash HOME, and fresh settings"]
+fn wayland_profile_editor() {
+    let path = Config::path().unwrap();
+    assert!(!path.exists(), "use a fresh configuration directory");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "default_profile = \"Bash\"\n[profiles.Bash]\nshell = \"/bin/bash\" # keep\nunknown_key = true\n").unwrap();
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::load().unwrap());
+    open_tab(&state);
+    window.present();
+    open_settings(&state, "profiles");
+    let (surface, page) = {
+        let ui = state.borrow();
+        let workspace = &ui.settings.as_ref().unwrap().workspace;
+        (
+            workspace.surface.clone(),
+            workspace.pages.visible_child().unwrap(),
+        )
+    };
+    let widgets = descendants(&page);
+    let profile = widgets
+        .iter()
+        .find_map(|widget| widget.downcast_ref::<gtk::Expander>())
+        .unwrap();
+    profile.set_expanded(true);
+    let fields = descendants(profile.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Entry>().ok())
+        .collect::<Vec<_>>();
+
+    fields[0].set_text("Projects");
+    fields[2].set_text("~/");
+    fields[3].set_text("Development");
+    button(profile.upcast_ref(), "Duplicate profile").emit_clicked();
+    button(&page, "Add profile").emit_clicked();
+    button(surface.upcast_ref(), "Save").emit_clicked();
+
+    let config = Config::load().unwrap();
+    assert_eq!(config.default_profile, "Projects");
+    assert_eq!(
+        config.profiles["Projects"].tab_name.as_deref(),
+        Some("Development")
+    );
+    assert_eq!(
+        config.profiles["Projects copy"].tab_name.as_deref(),
+        Some("Development")
+    );
+    assert!(config.profiles.contains_key("New profile"));
+    assert!(!config.profiles.contains_key("Bash"));
+    let source = fs::read_to_string(&path).unwrap();
+    assert!(source.contains("# keep") && source.contains("unknown_key = true"));
+    assert_eq!(
+        state.borrow().tabs[0]
+            .active_pane()
+            .launch
+            .profile
+            .as_deref(),
+        Some("Projects")
+    );
+    let menu = state
+        .borrow()
+        .tab_menu
+        .upgrade()
+        .unwrap()
+        .popover()
+        .unwrap();
+    button(menu.upcast_ref(), "Projects copy").emit_clicked();
+    assert_eq!(state.borrow().tabs.len(), 2);
+    window.close();
+}
