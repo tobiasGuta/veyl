@@ -1,5 +1,11 @@
 # Verification status
 
+## Fedora preview candidate
+
+The candidate at `707c0de` passed formatting, locked unit tests, Clippy, and the optimized build on Fedora 45. The isolated GNOME Wayland suite passed 14 of 17 display cases, including clipboard actions, Vim, tmux, and repeated PTY lifecycle coverage. Search focus, directional split focus, and confirmed multiline paste each failed in that headless session. Each passed on three reruns on the signed-in GNOME desktop with fresh test settings. The appearance and window control tests also passed with Blur My Shell disabled, and the Wayland trace showed Mutter receiving the native blur region.
+
+The signed-in runs exercised GTK actions, and the isolated run used a separate clipboard. Physical keyboard and pointer gestures, Orca, contrast and fractional scaling, and a fresh-account app-grid check still need hands-on verification. The settings and session boundary review in this pass was performed by the implementation author. The independent review required by the release checklist remains open. The PR stack and preview tag remain pending. See [draft release notes](releases/v0.1.0-preview.md).
+
 ## Pane zoom and directory titles
 
 The Fedora 45 GNOME Wayland tests exercised zoom and restore in nested splits, separate font scales, closing a zoomed pane, and OSC 7 directory labels with manual rename precedence. Physical shortcuts and optical review remain open.
