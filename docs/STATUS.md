@@ -26,7 +26,7 @@ The Fedora 45 GNOME Wayland test launched with malformed TOML, found the error a
 
 ## Local installer
 
-On Fedora 45, the installer created an executable, desktop entry and SVG in isolated home and data directories. The desktop entry passed validation and `gtk-launch` started Veyl with a home path containing spaces. Uninstall removed the three installed files. Visual app-grid testing on a fresh desktop account remains open.
+On Fedora 45, the installer created an executable, desktop entry and SVG in isolated home and data directories. The desktop entry passed validation and `gtk-launch` started Veyl with a home path containing spaces. The optimized build also started via the installed desktop entry and presented a Wayland window buffer in an isolated D-Bus session. The installed icon decoded at 48 px. Uninstall removed the three installed files and preserved settings. Visual app-grid testing on a fresh desktop account remains open.
 
 ## Command palette
 
