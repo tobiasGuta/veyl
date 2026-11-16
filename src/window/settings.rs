@@ -370,6 +370,13 @@ pub(super) fn build(
         Some("The + button opens the default profile. Open other profiles from the tab menu."),
     );
     append_row(&profiles, "Default profile", form.profile.upcast_ref());
+    let prompt_page = page(
+        &pages,
+        "prompt",
+        "Shell prompt",
+        Some("Customize the Bash prompt for new Veyl tabs and panes. Leave the editor empty to use your shell’s prompt."),
+    );
+    let bash_prompt = build_prompt_editor(&prompt_page, original.bash_prompt.as_deref());
     let shortcuts = page(
         &pages,
         "shortcuts",
@@ -393,11 +400,14 @@ pub(super) fn build(
         editor,
         #[weak]
         pages,
+        #[weak]
+        bash_prompt,
         move |_| {
             match pages.visible_child_name().as_deref() {
                 Some("shortcuts") => editor.reset(),
                 Some("schemes") => form.select_scheme(""),
                 Some("profiles") => form.select_profile(""),
+                Some("prompt") => bash_prompt.set_text(""),
                 _ => form.load_appearance(&Config::default()),
             }
         }
@@ -428,6 +438,16 @@ pub(super) fn build(
             };
             let mut draft = form.draft();
             draft.shortcuts = shortcuts;
+            let prompt = prompt_text(&bash_prompt);
+            if let Err(message) = crate::prompt::validate(&prompt) {
+                if let Some(pages) = pages.upgrade() {
+                    pages.set_visible_child_name("prompt");
+                }
+                error.set_text(&message.to_string());
+                error.set_visible(true);
+                return;
+            }
+            draft.bash_prompt = (!prompt.is_empty()).then_some(prompt);
             match save(draft) {
                 Ok(()) => dismiss(),
                 Err(message) => {
@@ -444,6 +464,168 @@ pub(super) fn build(
     surface.append(&footer);
 
     Workspace { surface, pages }
+}
+
+fn build_prompt_editor(body: &gtk::Box, original: Option<&str>) -> gtk::TextBuffer {
+    let input = gtk::TextView::builder()
+        .monospace(true)
+        .wrap_mode(gtk::WrapMode::Char)
+        .top_margin(8)
+        .bottom_margin(8)
+        .left_margin(10)
+        .right_margin(10)
+        .build();
+    input.update_property(&[Property::Label("Custom Bash prompt")]);
+    let buffer = input.buffer();
+    buffer.set_text(original.unwrap_or_default());
+    let presets = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .column_spacing(4)
+        .build();
+    for (label, value) in [
+        ("Shell default", ""),
+        ("Minimal", "❯ "),
+        ("Directory", r"\w ❯ "),
+        ("Classic", r"\u@\h:\w\$ "),
+        ("Two lines", r"╭─⟡─\u in \w\n╰─❯ "),
+    ] {
+        let preset = gtk::Button::with_label(label);
+        preset.connect_clicked(glib::clone!(
+            #[weak]
+            buffer,
+            move |_| buffer.set_text(value)
+        ));
+        presets.insert(&preset, -1);
+    }
+    body.append(&presets);
+    body.append(
+        &gtk::ScrolledWindow::builder()
+            .min_content_height(90)
+            .child(&input)
+            .build(),
+    );
+    let help = description(
+        r"Use Bash PS1 syntax. \u is your username, \w is the current folder, and \n starts a new line.",
+    );
+    help.add_css_class("veyl-hint");
+    body.append(&help);
+    let preview = description("");
+    preview.add_css_class("monospace");
+    preview.add_css_class("veyl-settings-row");
+    let update_preview = {
+        let preview = preview.downgrade();
+        move |buffer: &gtk::TextBuffer| {
+            if let Some(preview) = preview.upgrade() {
+                let text = prompt_text(buffer);
+                let sample = if text.is_empty() {
+                    "Your shell’s default prompt".into()
+                } else {
+                    text.replace(r"\u", "user")
+                        .replace(r"\w", "~/Projects")
+                        .replace(r"\h", "fedora")
+                        .replace(r"\n", "\n")
+                        .replace(r"\$", "$")
+                };
+                preview.set_text(&sample);
+            }
+        }
+    };
+    body.append(&description("Text preview"));
+    body.append(&preview);
+    update_preview(&buffer);
+    buffer.connect_changed(update_preview);
+
+    let status = description("");
+    status.set_visible(false);
+    status.add_css_class("veyl-hint");
+    let apply = gtk::Button::with_label("Apply to .bashrc…");
+    apply.set_sensitive(!prompt_text(&buffer).is_empty());
+    buffer.connect_changed(glib::clone!(
+        #[weak]
+        apply,
+        move |buffer| apply.set_sensitive(!prompt_text(buffer).is_empty())
+    ));
+    apply.connect_clicked(glib::clone!(
+        #[weak]
+        buffer,
+        #[weak]
+        status,
+        move |button| confirm_bashrc_edit(button, &status, Some(prompt_text(&buffer)))
+    ));
+    let remove = gtk::Button::with_label("Remove Veyl prompt from .bashrc…");
+    remove.connect_clicked(glib::clone!(
+        #[weak]
+        status,
+        move |button| confirm_bashrc_edit(button, &status, None)
+    ));
+    let actions = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    actions.set_halign(gtk::Align::Start);
+    actions.append(&apply);
+    actions.append(&remove);
+    body.append(&actions);
+    body.append(&status);
+    buffer
+}
+
+fn prompt_text(buffer: &gtk::TextBuffer) -> String {
+    buffer
+        .text(&buffer.start_iter(), &buffer.end_iter(), true)
+        .into()
+}
+
+fn confirm_bashrc_edit(button: &gtk::Button, status: &gtk::Label, prompt: Option<String>) {
+    let Some(window) = button.root().and_downcast::<gtk::Window>() else {
+        return;
+    };
+    let path = match crate::prompt::bashrc() {
+        Ok(path) => path,
+        Err(error) => {
+            status.set_text(&format!("Could not find .bashrc. {error}"));
+            status.set_visible(true);
+            return;
+        }
+    };
+    status.set_visible(false);
+    let (message, summary, action) = if prompt.is_some() {
+        (
+            "Apply this prompt to .bashrc?",
+            "Veyl adds or replaces its own prompt block. This affects new Bash sessions that read this file, including other terminals.",
+            "Apply to .bashrc",
+        )
+    } else {
+        (
+            "Remove the Veyl prompt from .bashrc?",
+            "Veyl removes its own prompt block and keeps your other settings.",
+            "Remove prompt block",
+        )
+    };
+    gtk::AlertDialog::builder()
+        .message(message)
+        .detail(format!("{summary}\n\n{}", path.display()))
+        .buttons(["Cancel", action])
+        .cancel_button(0)
+        .default_button(0)
+        .modal(true)
+        .build()
+        .choose(
+            Some(&window),
+            gtk::gio::Cancellable::NONE,
+            glib::clone!(
+                #[weak]
+                status,
+                move |response| {
+                    if !matches!(response, Ok(1)) {
+                        return;
+                    }
+                    let message = match crate::prompt::update_bashrc(&path, prompt.as_deref()) {
+                        Ok(()) => "Open a fresh Bash session to see the change.".into(),
+                        Err(error) => format!("Could not update .bashrc. {error}"),
+                    };
+                    status.set_text(&message);
+                    status.set_visible(true);
+                }
+            ),
+        );
 }
 
 fn page(pages: &gtk::Stack, name: &str, title: &str, help: Option<&str>) -> gtk::Box {

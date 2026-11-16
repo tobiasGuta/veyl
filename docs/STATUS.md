@@ -1,5 +1,9 @@
 # Verification status
 
+## Bash prompt editor
+
+On Fedora 45 GNOME Wayland with Blur My Shell disabled, the Bash prompt integration test confirmed that existing theme hooks and aliases still run, new Veyl Bash tabs use the saved prompt, and Save leaves the isolated `.bashrc` intact. The test also covered canceling the dotfile action, confirming the write, using the stored dotfile with Veyl's shell default, and confirming removal of the managed block. The appearance, shortcut, and terminal lifecycle tests passed. Physical input and visual review remain open.
+
 ## Settings tab redesign
 
 On Fedora 45 GNOME Wayland with Blur My Shell disabled, the Settings, shortcut editor, tab menu, tab interaction, and profile/split integration tests passed with fatal GTK criticals enabled. The Settings test checks switching away and back, discarding and saving drafts, and keeping the workspace open when the last shell tab closes. Visual comparison and physical keyboard and pointer testing remain open.

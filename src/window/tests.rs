@@ -965,3 +965,129 @@ fn wayland_window_controls() {
     assert!(app.windows().is_empty());
     assert!(state.borrow().tabs.is_empty());
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland, an isolated Bash HOME, and fresh settings"]
+fn wayland_bash_prompt() {
+    let path = crate::prompt::bashrc().unwrap();
+    assert!(!path.exists(), "use an isolated Bash HOME");
+    let original = "alias veyl_test='printf hello'\nPROMPT_COMMAND='PS1=THEME_PROMPT'\n";
+    fs::write(&path, original).unwrap();
+    assert!(!Config::path().unwrap().exists(), "use fresh settings");
+
+    let modal = |description| {
+        wait_for(description, || {
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .find_map(|widget| {
+                    widget
+                        .downcast::<gtk::Window>()
+                        .ok()
+                        .filter(|dialog| dialog.is_visible() && dialog.is_modal())
+                })
+        })
+    };
+
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    open_tab(&state);
+    window.present();
+    let first = active_terminal(&state).unwrap();
+    wait_for("existing Bash theme", || {
+        terminal_text(&first).contains("THEME_PROMPT").then_some(())
+    });
+
+    open_settings(&state, "prompt");
+    let (surface, page) = {
+        let ui = state.borrow();
+        let workspace = &ui.settings.as_ref().unwrap().workspace;
+        (
+            workspace.surface.clone(),
+            workspace.pages.visible_child().unwrap(),
+        )
+    };
+    let editor = descendants(&page)
+        .into_iter()
+        .find_map(|widget| widget.downcast::<gtk::TextView>().ok())
+        .unwrap();
+    let custom = "Veyl 'custom' \\w\n❯ ";
+    editor.buffer().set_text(custom);
+    let apply = button(&page, "Apply to .bashrc…");
+    apply.emit_clicked();
+    let dialog = modal("confirmation dialog");
+    button(dialog.upcast_ref(), "Cancel").emit_clicked();
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+    button(surface.upcast_ref(), "Save").emit_clicked();
+    assert_eq!(Config::load().bash_prompt.as_deref(), Some(custom));
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    open_tab(&state);
+    let second = active_terminal(&state).unwrap();
+    wait_for("custom prompt after theme hooks", || {
+        let text = terminal_text(&second);
+        (text.contains("Veyl 'custom' ~") && text.contains('❯')).then_some(())
+    });
+    second.feed_child(b"veyl_test\r");
+    wait_for("alias from original .bashrc", || {
+        terminal_text(&second).contains("hello").then_some(())
+    });
+    assert!(terminal_text(&first).contains("THEME_PROMPT"));
+
+    open_settings(&state, "prompt");
+    let page = state
+        .borrow()
+        .settings
+        .as_ref()
+        .unwrap()
+        .workspace
+        .pages
+        .visible_child()
+        .unwrap();
+    button(&page, "Apply to .bashrc…").emit_clicked();
+    let dialog = modal("apply confirmation");
+    button(dialog.upcast_ref(), "Apply to .bashrc").emit_clicked();
+    wait_for("confirmed .bashrc update", || {
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains("# BEGIN VEYL BASH PROMPT")
+            .then_some(())
+    });
+    assert!(fs::read_to_string(&path).unwrap().starts_with(original));
+    button(&page, "Shell default").emit_clicked();
+    let surface = state
+        .borrow()
+        .settings
+        .as_ref()
+        .unwrap()
+        .workspace
+        .surface
+        .clone();
+    button(surface.upcast_ref(), "Save").emit_clicked();
+    assert!(Config::load().bash_prompt.is_none());
+    open_tab(&state);
+    let third = active_terminal(&state).unwrap();
+    wait_for("prompt loaded from .bashrc alone", || {
+        terminal_text(&third)
+            .contains("Veyl 'custom' ~")
+            .then_some(())
+    });
+
+    open_settings(&state, "prompt");
+    let page = state
+        .borrow()
+        .settings
+        .as_ref()
+        .unwrap()
+        .workspace
+        .pages
+        .visible_child()
+        .unwrap();
+    button(&page, "Remove Veyl prompt from .bashrc…").emit_clicked();
+    let dialog = modal("remove confirmation");
+    button(dialog.upcast_ref(), "Remove prompt block").emit_clicked();
+    wait_for("confirmed .bashrc removal", || {
+        (fs::read_to_string(&path).unwrap() == original).then_some(())
+    });
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    window.close();
+}

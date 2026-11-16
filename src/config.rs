@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -51,6 +51,7 @@ pub struct Config {
     pub profiles: BTreeMap<String, Profile>,
     pub shortcuts: BTreeMap<String, Vec<String>>,
     pub tab_progress: bool,
+    pub bash_prompt: Option<String>,
 }
 
 impl Default for Config {
@@ -78,6 +79,7 @@ impl Default for Config {
             )]),
             shortcuts: BTreeMap::new(),
             tab_progress: true,
+            bash_prompt: None,
         }
     }
 }
@@ -156,7 +158,7 @@ impl Config {
         };
         let content = self.update_document(previous, &source)?;
         if content != source {
-            write_settings(&path, &content)?;
+            write_settings(&path, &content, 0o600)?;
         }
         Ok(())
     }
@@ -228,7 +230,7 @@ fn merge_table(
     }
 }
 
-fn write_settings(path: &Path, contents: &str) -> io::Result<()> {
+pub(crate) fn write_settings(path: &Path, contents: &str, mode: u32) -> io::Result<()> {
     static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
     let parent = path
         .parent()
@@ -250,6 +252,7 @@ fn write_settings(path: &Path, contents: &str) -> io::Result<()> {
     };
     let result = file
         .write_all(contents.as_bytes())
+        .and_then(|()| file.set_permissions(fs::Permissions::from_mode(mode)))
         .and_then(|()| file.sync_all());
     drop(file);
     let result = result.and_then(|()| fs::rename(&temp, path));
