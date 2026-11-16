@@ -2,56 +2,43 @@
 
 **Veyl** is an early-stage, Fedora-native terminal emulator with a visual direction inspired by **Windows Terminal on Windows 11**: compact integrated tabs, a dark Fluent-like surface, and subtle translucency.
 
-> **Status:** v0.1 development foundation. See [verification status](docs/STATUS.md) for desktop coverage and remaining release gates.
+> **Status** · Fedora 45 GNOME Wayland is the tested platform. See [verification status](docs/STATUS.md) and [preview notes](docs/releases/v0.1.0-preview.md) for the scope of testing and the remaining release checks.
 
 ## Quick start — Fedora 45
 
-Install the native libraries and Rust toolchain:
+Build and install Veyl for your account.
 
 ~~~bash
-sudo dnf install rust cargo gcc pkgconf-pkg-config gtk4-devel vte291-gtk4-devel
-# Optional preferred font; fallback to another monospace font if unavailable:
-sudo dnf install cascadia-mono-fonts
-~~~
-
-From the repository root:
-
-~~~bash
-cargo run
-~~~
-
-Veyl opens a GTK4 window and uses VTE4 to spawn the current user's shell using the Linux pseudo-terminal subsystem. It does **not** replace Bash, Fish, Zsh, or the system terminal. Keep your existing terminal installed while evaluating it.
-
-If Veyl cannot start the shell, the affected tab shows the error and can be closed normally. If the application fails to compile, please include the exact `cargo build --locked` output in your report.
-
-### Desktop launcher and icon
-
-Build from the repository root and run the user-local installer.
-
-~~~bash
+sudo dnf install git python3 rust cargo gcc pkgconf-pkg-config gtk4-devel vte291-gtk4-devel
+git clone https://github.com/tobiasGuta/veyl.git
+cd veyl
 cargo build --locked --release
 python3 scripts/install-local.py install
 ~~~
 
-Open **Veyl** from the application grid. The installer registers the absolute executable and icon paths, so the launcher works independently of your desktop session’s `PATH` and icon-theme lookup. To remove the executable, launcher, and icon while keeping your settings, run:
+Open **Veyl** from the application grid. The installer registers the executable, desktop entry, and icon with absolute paths, so launching from GNOME does not depend on the desktop session’s `PATH`. The default font is Cascadia Mono. Install the optional `cascadia-mono-fonts` package or pick another monospace font in Settings.
+
+To build and launch from the checkout without installing, run `cargo run --locked`. After updating an installation, reopen Veyl to use the new executable.
+
+To remove the executable, desktop entry, and icon while keeping your settings, run:
 
 ~~~bash
 python3 scripts/install-local.py uninstall
 ~~~
 
-## What v0.1 includes in source
+## Features
 
 - Rust + GTK4 application with custom dark header, integrated selectable tabs, new/close tab buttons and Wayland-friendly GTK window management.
-- VTE terminal widget per tab, launching the `$SHELL` executable (or `/bin/bash` fallback), with regular shell environment inheritance.
+- One VTE terminal per pane, with the selected profile’s shell or your usual shell and environment.
 - Windows Terminal-inspired styling in [assets/veyl.css](assets/veyl.css).
-- Settings tab with Appearance, Color schemes, Profiles, Shell prompt, and Keyboard shortcuts. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
+- Settings tab with Appearance, Color schemes, Profiles, Shell prompt, Keyboard shortcuts, and Interaction. Veyl saves them in `$XDG_CONFIG_HOME/veyl/config.toml` or `~/.config/veyl/config.toml`.
 - Configurable font, font size, foreground/background colors, and scrollback via TOML.
-- Clipboard shortcuts and basic tab shortcuts.
+- Split panes, scrollback search, tab actions, a command palette, and configurable shortcuts.
 - No telemetry, command-history collection, AI execution, or remote service integration.
 
 ### Keyboard shortcuts
 
-| Shortcut | Intended action |
+| Default shortcut | Action |
 | --- | --- |
 | Ctrl+Shift+T | New tab |
 | Ctrl+Shift+W | Close the focused pane, or the tab when it has one pane |
@@ -66,6 +53,8 @@ python3 scripts/install-local.py uninstall
 | Ctrl+Shift+Enter | Zoom or restore the focused split |
 | Ctrl+= / Ctrl+- | Change the focused pane’s font size |
 | Ctrl+0 | Reset the focused pane’s font size |
+| Ctrl+Shift+P | Open the Command Palette |
+| Ctrl+, | Open Settings |
 
 Open **Command Palette…** from the arrow beside **+**, or press **Ctrl+Shift+P**. Search across Veyl actions and launch profiles, use the arrow keys to select a result, and press Enter to run it. Results show the shortcuts currently assigned in Settings.
 
@@ -108,54 +97,7 @@ Expand **Smart Bash prompt**, choose the segments you want, and select **Insert 
 
 ## Configuration
 
-Example `~/.config/veyl/config.toml`:
-
-~~~toml
-opacity = 0.72
-blur = true
-font_family = "Cascadia Mono"
-font_size = 12
-scrollback_lines = 10000
-background = "#10121a"
-foreground = "#e8eaf0"
-cursor_shape = "block"
-padding_x = 10
-padding_y = 8
-~~~
-
-Add profiles and reusable color schemes to the same file. Put root settings before the table headings. Existing tab titles and colors are session settings. Profile edits apply to newly opened tabs after relaunch.
-
-~~~toml
-default_profile = "Projects"
-color_scheme = "Midnight"
-tab_progress = true
-
-[profiles.Bash]
-shell = "/bin/bash"
-
-[profiles.Projects]
-shell = "/bin/bash"
-directory = "~/Projects"
-tab_name = "Project shell"
-color_scheme = "Workshop"
-
-[schemes.Workshop]
-ansi = [
-  "#161924", "#f17883", "#91d7a2", "#dfc27a",
-  "#81aaff", "#c8a1ed", "#7dcedb", "#dae2f2",
-  "#777f99", "#ff9da6", "#aae9b2", "#f5d995",
-  "#a9c5ff", "#dfbaff", "#a3e2ef", "#ffffff",
-]
-cursor = "#b8cdff"
-selection = "#3d5180"
-
-[shortcuts]
-find = ["<Primary><Shift>f"]
-~~~
-
-An omitted shell uses your login shell setting. Use an absolute executable path and an absolute directory or one starting with `~/`. A scheme's `ansi` array is ordered from black through white, then bright black through bright white. Set a shortcut list to `[]` to unbind it. Leave `default_profile` empty to launch your ordinary shell from **+**.
-
-Create the file manually to override defaults. Saving an appearance change also creates the file. Veyl preserves comments and unrelated keys when saving. Manual edits take effect at launch. If Veyl cannot read or parse the config at launch, it shows the path and error and offers to open the file. You can continue with defaults, then fix the file and reopen Veyl. Use [the window CSS selectors](docs/VISUAL_SPEC.md#customizing-the-window-chrome) to customize colors and spacing in the tab strip and frame.
+The [configuration reference](docs/CONFIGURATION.md) covers TOML examples, profile fields, custom color schemes, shortcut overrides, and safe settings-file permissions. The [architecture](docs/ARCHITECTURE.md) and [test plan](docs/TESTING.md) cover development and verification.
 
 ## For Codex contributors
 

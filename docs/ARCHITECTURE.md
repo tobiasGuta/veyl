@@ -9,7 +9,7 @@ Gtk.Application (single application id)
       ├─ tab menu Gtk.Popover (profiles and terminal actions)
       └─ Gtk.Stack: terminal tab surfaces and a Settings workspace
                       │
-                      └─ VTE PTY → $SHELL (or /bin/bash)
+                      └─ VTE PTY per pane → profile shell, $SHELL, or /bin/bash
                                         ├─ editor, ssh, tmux, ...
                                         └─ child processes
 ```
@@ -19,7 +19,10 @@ The terminal engine is upstream VTE4, **not a new ANSI/VT parser**. GTK4 renders
 ## Responsibilities
 
 - src/main.rs: register GTK app id and activation callback.
-- src/window.rs: window/header/tab state, VTE widgets, PTY spawning, appearance controls, shortcuts.
+- src/window.rs: window state, header, actions, and tab activation.
+- src/window/panes.rs: pane layout, VTE widgets, launch handling, and PTY lifecycle.
+- src/window/settings.rs: Settings pages, draft state, previews, and Save and Discard actions.
+- src/prompt.rs: Bash prompt presets, startup helper, and opt-in .bashrc updates.
 - src/config.rs: defaults, normalization, user configuration load/save and unit tests.
 - assets/veyl.css: static design tokens and widget appearance.
 - docs/: product contracts, acceptance tests, unsupported cases, agent instructions.
@@ -36,7 +39,7 @@ VTE launches a profile executable or falls back to the user's `$SHELL`. A profil
 
 ## Configuration
 
-Path resolution: `$XDG_CONFIG_HOME/veyl/config.toml` else `$HOME/.config/veyl/config.toml`. Use serde for TOML fields; clamp unreasonable numeric values. Save in the Settings tab writes the changed fields and applies them to the open window. The draft lives with that tab, and its preview terminals have no PTY. Settings are scoped to a single user; no global system config is written.
+Path resolution and examples are in the [configuration reference](CONFIGURATION.md). Serde loads TOML and normalization bounds numeric settings. Save in the Settings tab updates the changed fields in the existing document and applies them to the open window. The draft lives with that tab, and its preview terminals have no PTY. Settings are scoped to a single user; no global system config is written.
 
 Veyl launches Bash with a generated startup file when a custom prompt is enabled. The file sources the user's usual `.bashrc`, then registers a hook to set PS1 after existing prompt hooks. Veyl passes the PS1 value as data and clears its transport variable before sourcing the user file. The optional dotfile action independently updates a marked block in `.bashrc` using an atomic write.
 
