@@ -1529,3 +1529,68 @@ fn wayland_tab_overflow() {
     assert!(!scroll.hscrollbar().is_mapped());
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_split_pane_chrome() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    window.present();
+    let shift_alt = gdk::ModifierType::SHIFT_MASK | gdk::ModifierType::ALT_MASK;
+    let accelerators = app.accels_for_action("win.split-down");
+    assert_eq!(
+        gtk::accelerator_parse(&accelerators[0]),
+        Some((gdk::Key::underscore, shift_alt))
+    );
+    let display = gdk::Display::default().unwrap();
+    let translations = display
+        .map_keyval(gdk::Key::minus)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|key| key.level() == 0)
+        .filter_map(|key| display.translate_key(key.keycode(), shift_alt, key.group()));
+    for (symbol, _, _, _) in
+        translations.filter(|(symbol, _, _, _)| *symbol == gdk::Key::underscore)
+    {
+        assert_eq!(
+            gtk::accelerator_parse(&accelerators[0]),
+            Some((symbol, shift_alt))
+        );
+    }
+
+    let mut legacy = Config::default();
+    legacy
+        .shortcuts
+        .insert("split-down".into(), vec!["<Shift><Alt>minus".into()]);
+    shortcuts::apply(&app, &legacy);
+    assert_eq!(app.accels_for_action("win.split-down"), accelerators);
+    legacy.shortcuts.get_mut("split-down").unwrap().clear();
+    shortcuts::apply(&app, &legacy);
+    assert!(app.accels_for_action("win.split-down").is_empty());
+    shortcuts::apply(&app, &Config::default());
+
+    open_tab(&state);
+    activate(&window, "split-right");
+    activate(&window, "split-down");
+    let (left, top, bottom, surface) = {
+        let ui = state.borrow();
+        let tab = &ui.tabs[0];
+        let overlay = |index: usize| tab.panes[index].search.overlay.clone();
+        (overlay(0), overlay(1), overlay(2), tab.surface.clone())
+    };
+    wait_for("split panes to be mapped", || {
+        (left.width() > 0 && bottom.width() > 0).then_some(())
+    });
+    let left_bounds = left.compute_bounds(&surface).unwrap();
+    let top_bounds = top.compute_bounds(&surface).unwrap();
+    let bottom_bounds = bottom.compute_bounds(&surface).unwrap();
+    let side_gap = top_bounds.x() - left_bounds.x() - left_bounds.width();
+    let vertical_gap = bottom_bounds.y() - top_bounds.y() - top_bounds.height();
+    assert_eq!((side_gap, vertical_gap), (7.0, 7.0));
+    let child = bottom.child().unwrap().compute_bounds(&surface).unwrap();
+    assert_eq!(
+        (child.x() - bottom_bounds.x(), child.y() - bottom_bounds.y()),
+        (10.0, 8.0)
+    );
+    window.close();
+}

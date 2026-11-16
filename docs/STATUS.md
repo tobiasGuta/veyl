@@ -1,5 +1,9 @@
 # Verification status
 
+## Physical shortcuts and split panes
+
+The user reported that the physical shortcuts they tried passed except for Alt+Shift+Minus. The follow-up registers the shifted Minus key symbol for Split down and translates an existing legacy Split down binding. Fedora GNOME Wayland automated tests checked both split orientations, divider and padding geometry, and the effective shortcut. The user retested the installed build and reported that the physical keyboard shortcuts passed, including the revised Alt+Shift+Minus. Visual comparison of the revised pane styling remains open.
+
 ## Tab overflow
 
 The GNOME Wayland test opened enough tabs to overflow the titlebar, verified the horizontal scrollbar was hidden, and checked that cycling to the first tab and opening Settings brought those tabs into view.
@@ -8,7 +12,7 @@ The GNOME Wayland test opened enough tabs to overflow the titlebar, verified the
 
 The candidate at `707c0de` passed formatting, locked unit tests, Clippy, and the optimized build on Fedora 45. The isolated GNOME Wayland suite passed 14 of 17 display cases, including clipboard actions, Vim, tmux, and repeated PTY lifecycle coverage. Search focus, directional split focus, and confirmed multiline paste each failed in that headless session. Each passed on three reruns on the signed-in GNOME desktop with fresh test settings. The appearance and window control tests also passed with Blur My Shell disabled, and the Wayland trace showed Mutter receiving the native blur region.
 
-The signed-in runs exercised GTK actions, and the isolated run used a separate clipboard. Physical keyboard and pointer gestures, Orca, contrast and fractional scaling, and a fresh-account app-grid check still need hands-on verification. The settings and session boundary review in this pass was performed by the implementation author. The independent review required by the release checklist remains open. The PR stack and preview tag remain pending. See [draft release notes](releases/v0.1.0-preview.md).
+The signed-in runs exercised GTK actions, and the isolated run used a separate clipboard. The physical shortcut check passed in the follow-up above. Pointer gestures, Orca, contrast and fractional scaling, and a fresh-account app-grid check still need hands-on verification. The settings and session boundary review in this pass was performed by the implementation author. The independent review required by the release checklist remains open. The PR stack and preview tag remain pending. See [draft release notes](releases/v0.1.0-preview.md).
 
 ## Pane zoom and directory titles
 
@@ -72,7 +76,7 @@ On Fedora 45 GNOME Wayland, `cargo test --locked wayland_appearance_settings -- 
 
 Updated 2026-11-15 for [draft PR #2](https://github.com/tobiasGuta/veyl/pull/2).
 
-**Classification:** v0.1 development foundation. This branch passed the native lifecycle regression tests. The physical keyboard shortcuts and visual checks remain open.
+**Classification:** v0.1 development foundation. This branch passed the native lifecycle regression tests. See the follow-up above for the physical shortcut pass. Visual checks remain open.
 
 ## Fedora 45 validation
 
@@ -89,7 +93,7 @@ Fedora 45 Workstation, GNOME Shell and Mutter 51.1, GTK 4.24.1, VTE 0.84.1. The 
 | Child exit and window shutdown | PASS | Last-shell exit closed the window. Closing a tab with `sleep 120` and closing a window with two foreground `sleep` jobs released the terminal widgets and the tested shell and job processes |
 | Spawn failure | PASS | Launching the binary with a non-executable regular file in `$SHELL` showed actionable text in the tab. Closing the last tab returned process status 0. The regression test also checked that a failed launch left no PTY |
 | Clipboard and shortcut bindings | PASS | On isolated headless GNOME Wayland, the app's copy and paste actions exchanged synthetic text and Bash read the pasted value. GTK reported all four expected accelerator bindings |
-| Physical keyboard shortcuts | NOT RUN | The isolated compositor did not deliver the synthetic key events, so the actions were tested directly |
+| Physical keyboard shortcuts | PASS | User tested the installed split-pane follow-up on their Fedora GNOME desktop and confirmed the shortcuts passed |
 | Wayland blur and opacity controls | PROTOCOL PASS | With Blur My Shell disabled, GTK sent a rounded blur region to Mutter. The region cleared at 100%, returned at 72%, and cleared when frosted mode was turned off. The slider also accepted 40% |
 | Fallback and persistence | PASS | XWayland reported blur unavailable and allowed tint adjustment after frosted mode was disabled. A Wayland relaunch restored 55% and frosted mode off |
 | Visual blur, text contrast, scaling | NOT RUN | Pixel-level appearance, readability across backdrops, and fractional scaling still need visual review |
