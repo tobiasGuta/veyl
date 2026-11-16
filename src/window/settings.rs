@@ -494,6 +494,30 @@ fn build_prompt_editor(body: &gtk::Box, original: Option<&str>) -> gtk::TextBuff
             .child(&input)
             .build(),
     );
+    let smart = gtk::Expander::new(Some("Smart Bash prompt"));
+    let options = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let existing = original.unwrap_or_default();
+    let is_smart = existing.contains("__veyl_smart_");
+    let toggles = crate::prompt::SMART_SEGMENTS.map(|(label, segment)| {
+        let toggle = gtk::CheckButton::with_label(label);
+        toggle.set_active(!is_smart || existing.contains(segment));
+        options.append(&toggle);
+        toggle
+    });
+    let insert = gtk::Button::with_label("Insert smart prompt");
+    insert.set_halign(gtk::Align::Start);
+    insert.connect_clicked(glib::clone!(
+        #[weak]
+        buffer,
+        move |_| {
+            let enabled = std::array::from_fn(|index| toggles[index].is_active());
+            buffer.set_text(&crate::prompt::smart_prompt(&enabled));
+        }
+    ));
+    options.append(&insert);
+    smart.set_child(Some(&options));
+    smart.set_expanded(is_smart);
+    body.append(&smart);
     let help = description(
         r"Use Bash PS1 syntax. \u is your username, \w is the current folder, and \n starts a new line.",
     );
@@ -510,7 +534,8 @@ fn build_prompt_editor(body: &gtk::Box, original: Option<&str>) -> gtk::TextBuff
                 let sample = if text.is_empty() {
                     "Your shell’s default prompt".into()
                 } else {
-                    text.replace(r"\u", "user")
+                    crate::prompt::preview_template(&text)
+                        .replace(r"\u", "user")
                         .replace(r"\w", "~/Projects")
                         .replace(r"\h", "fedora")
                         .replace(r"\n", "\n")
