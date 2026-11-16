@@ -26,15 +26,17 @@ If Veyl cannot start the shell, the affected tab shows the error and can be clos
 
 ### Desktop launcher and icon
 
-If you already have a Veyl executable on your desktop session’s `PATH`, install the launcher and icon from the repository root.
+Build from the repository root and run the user-local installer.
 
 ~~~bash
-data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
-desktop=io.github.tobiasGuta.Veyl.desktop
-icon=io.github.tobiasGuta.Veyl.svg
-install -Dm644 "resources/$desktop" "$data_dir/applications/$desktop"
-install -Dm644 "resources/icons/hicolor/scalable/apps/$icon" \
-  "$data_dir/icons/hicolor/scalable/apps/$icon"
+cargo build --locked --release
+python3 scripts/install-local.py install
+~~~
+
+Open **Veyl** from the application grid. The installer registers the absolute executable and icon paths, so the launcher works independently of your desktop session’s `PATH` and icon-theme lookup. To remove the executable, launcher, and icon while keeping your settings, run:
+
+~~~bash
+python3 scripts/install-local.py uninstall
 ~~~
 
 ## What v0.1 includes in source
