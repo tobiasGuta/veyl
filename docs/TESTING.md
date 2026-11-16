@@ -43,6 +43,7 @@ The same harness also runs these tests. Use a fresh test configuration directory
 - `wayland_profiles_splits_and_progress` covers a named project profile, rendered ANSI colors, progress updates and reset, nested splits, directional focus, and shell cleanup after pane and window close.
 - `wayland_config_recovery` uses fresh settings to check the startup error, the config path and Open config file button, and the fallback settings.
 - `wayland_multiline_paste_preview` uses synthetic text and checks that Cancel keeps it out of Bash and Paste delivers it.
+- `wayland_terminal_links` checks plain and OSC web link detection, rejects file links, and activates Find from the terminal context actions.
 - `wayland_command_palette` checks search, empty results, custom shortcut labels, and action and profile activation.
 - `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
 

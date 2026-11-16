@@ -1,3 +1,4 @@
+mod links;
 mod palette;
 mod panes;
 mod paste;

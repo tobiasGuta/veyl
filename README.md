@@ -70,6 +70,8 @@ Right-click a tab to rename it, choose or reset its color, move it, duplicate it
 
 **Find in terminal** searches the focused pane's visible text and scrollback. Toggle **Aa** for case matching, use the arrows or Enter to move through matches, and press **Esc** to return to the terminal. Its query stays with the pane until you close it.
 
+Ctrl-click a web URL in terminal output to open it. Right-click the terminal for Copy, Paste, Find, and Open current folder. The menu also offers Open link and Copy link when you right-click a web link.
+
 **Duplicate tab**, **Split right**, and **Split down** start a fresh shell using the focused pane's profile and local folder. Veyl uses the shell's directory report when available and can read a local shell's current directory on Linux. If the report points to a remote or missing folder, Veyl uses the original starting folder. The tab's **×** closes all its panes.
 
 Open **Keyboard shortcuts…** from the arrow beside **+** to change or clear bindings. Veyl shows an error when two app actions use the same shortcut. The menu also lists launch profiles and split commands.

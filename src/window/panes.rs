@@ -76,19 +76,22 @@ impl Launch {
     }
 
     pub(super) fn duplicate(&self, terminal: &Terminal, pid: Option<glib::Pid>) -> Self {
-        // gtk-rs does not yet wrap the URI termprop getter.
-        let directory = match terminal.property::<Option<glib::GString>>("current-directory-uri") {
-            Some(uri) => local_directory(&uri),
-            None => pid.and_then(|pid| std::fs::read_link(format!("/proc/{}/cwd", pid.0)).ok()),
-        };
-        let directory = directory
-            .filter(|path| path.is_dir())
+        let directory = current_directory(terminal, pid)
             .and_then(|path| path.into_os_string().into_string().ok());
         Self {
             directory: directory.or_else(|| self.directory.clone()),
             ..self.clone()
         }
     }
+}
+
+pub(super) fn current_directory(terminal: &Terminal, pid: Option<glib::Pid>) -> Option<PathBuf> {
+    // gtk-rs does not yet wrap the URI termprop getter.
+    let directory = match terminal.property::<Option<glib::GString>>("current-directory-uri") {
+        Some(uri) => local_directory(&uri),
+        None => pid.and_then(|pid| std::fs::read_link(format!("/proc/{}/cwd", pid.0)).ok()),
+    };
+    directory.filter(|path| path.is_dir())
 }
 
 fn local_directory(uri: &str) -> Option<PathBuf> {
@@ -126,6 +129,7 @@ impl Pane {
         terminal.add_css_class("veyl-terminal");
         apply_terminal_settings(&terminal, &settings);
         let search = Search::new(&terminal);
+        super::links::install(&terminal, state);
         Self {
             id,
             terminal,
