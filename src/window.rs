@@ -670,7 +670,6 @@ fn open_tab_with_launch(state: &Rc<RefCell<State>>, launch: panes::Launch) {
     let pane = panes::Pane::new(state, launch);
     let pane_id = pane.id;
     let surface = GtkBox::new(Orientation::Vertical, 0);
-    surface.add_css_class("veyl-terminal-surface");
     surface.append(&pane.search.overlay);
 
     let chip = GtkBox::new(Orientation::Horizontal, 0);

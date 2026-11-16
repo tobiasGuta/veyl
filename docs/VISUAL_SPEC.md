@@ -20,7 +20,8 @@ Match the **appearance** of modern Windows Terminal (Windows 11 dark), not its A
 | Window controls | 28 CSS px wide, flat hover, 7 CSS px line glyphs |
 | Tab controls | 40 × 19 CSS px, shared translucent background, thin plus and chevron |
 | Tab row | 33 CSS px |
-| Terminal inset | 8 CSS px vertically, 10 horizontally |
+| Terminal inset | 8 CSS px vertically, 10 horizontally per pane |
+| Split divider | 1 CSS px visible line with a 7 CSS px drag area |
 | Window radius | 8 CSS px when unmaximized |
 
 CSS pixels are not guaranteed physical pixels at fractional GNOME display scaling. Never use screenshot matching without recording scaling factor, font installation, theme, and system button placement.

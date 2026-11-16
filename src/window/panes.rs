@@ -129,6 +129,7 @@ impl Pane {
         terminal.add_css_class("veyl-terminal");
         apply_terminal_settings(&terminal, &settings);
         let search = Search::new(&terminal);
+        search.overlay.add_css_class("veyl-terminal-surface");
         super::links::install(&terminal, state);
         Self {
             id,

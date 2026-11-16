@@ -1,5 +1,9 @@
 # Verification status
 
+## Physical shortcuts and split panes
+
+The user reported that the physical shortcuts they tried passed except for Alt+Shift+Minus. The follow-up registers the shifted Minus key symbol for Split down and translates an existing legacy Split down binding. Fedora GNOME Wayland automated tests checked both split orientations, divider and padding geometry, and the effective shortcut. Physical confirmation of the revised Split down shortcut and visual comparison of the revised pane styling remain open.
+
 ## Tab overflow
 
 The GNOME Wayland test opened enough tabs to overflow the titlebar, verified the horizontal scrollbar was hidden, and checked that cycling to the first tab and opening Settings brought those tabs into view.

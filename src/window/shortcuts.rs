@@ -14,7 +14,7 @@ pub(super) const ACTIONS: &[(&str, &str, &str)] = &[
     ("next-tab", "Next tab", "<Primary>Tab"),
     ("previous-tab", "Previous tab", "<Primary><Shift>Tab"),
     ("split-right", "Split right", "<Alt><Shift>plus"),
-    ("split-down", "Split down", "<Alt><Shift>minus"),
+    ("split-down", "Split down", "<Alt><Shift>underscore"),
     ("focus-pane-left", "Focus pane to the left", "<Alt>Left"),
     ("focus-pane-right", "Focus pane to the right", "<Alt>Right"),
     ("focus-pane-up", "Focus pane above", "<Alt>Up"),
@@ -49,7 +49,27 @@ fn effective(config: &Config) -> BTreeMap<String, Vec<String>> {
             *binding = keys.clone();
         }
     }
+    normalize_split_down(bindings.get_mut("split-down").unwrap());
     bindings
+}
+
+fn normalize_split_down(keys: &mut Vec<String>) {
+    let shift_alt = gdk::ModifierType::SHIFT_MASK | gdk::ModifierType::ALT_MASK;
+    let previous = Some((gdk::Key::minus, shift_alt));
+    let shifted = Some((gdk::Key::underscore, shift_alt));
+    // On US keyboards the physical Shift+Minus chord is delivered as underscore.
+    if keys
+        .iter()
+        .any(|key| gtk::accelerator_parse(key) == previous)
+    {
+        keys.retain(|key| gtk::accelerator_parse(key) != previous);
+        if !keys
+            .iter()
+            .any(|key| gtk::accelerator_parse(key) == shifted)
+        {
+            keys.push(gtk::accelerator_name(gdk::Key::underscore, shift_alt).to_string());
+        }
+    }
 }
 
 fn validate(bindings: &BTreeMap<String, Vec<String>>) -> Result<(), String> {
@@ -170,7 +190,7 @@ impl Editor {
     }
 
     pub(super) fn draft(&self) -> Result<BTreeMap<String, Vec<String>>, String> {
-        let bindings = self
+        let mut bindings: BTreeMap<_, _> = self
             .entries
             .iter()
             .map(|(id, entry)| {
@@ -186,6 +206,7 @@ impl Editor {
                 )
             })
             .collect();
+        normalize_split_down(bindings.get_mut("split-down").unwrap());
         if bindings == self.initial {
             return Ok(self.existing.clone());
         }
