@@ -48,6 +48,7 @@ The same harness also runs these tests. Use a fresh test configuration directory
 - `wayland_command_palette` checks search, empty results, custom shortcut labels, and action and profile activation.
 - `wayland_shortcut_editor` checks conflict feedback, persistence, and application of a valid shortcut on Save.
 
+- `wayland_tab_overflow` checks hidden scrollbar behavior and scroll-to-selection for terminal and Settings tabs.
 - `wayland_pane_zoom` checks nested-split visibility, font zoom and reset, and unzoom on closing a pane.
 - `wayland_directory_titles` checks shell directory reports, manual title precedence, and clearing the override.
 - `wayland_smart_prompt` checks preset selection, a disabled Git segment, saved prompt, exit status, and command timing in Bash 5.3 without a .bashrc.

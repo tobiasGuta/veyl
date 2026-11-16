@@ -1489,3 +1489,43 @@ fn wayland_directory_titles() {
     assert_eq!(label.text(), "Projects/other");
     window.close();
 }
+
+#[test]
+#[ignore = "requires GNOME Wayland and an isolated Bash HOME"]
+fn wayland_tab_overflow() {
+    let app = test_application();
+    let (window, state) = create_window(&app, Config::default());
+    window.present();
+    for _ in 0..6 {
+        open_tab(&state);
+    }
+    let viewport = state.borrow().tabs_viewport.clone();
+    let scroll = viewport.parent().and_downcast::<ScrolledWindow>().unwrap();
+    let adjustment = scroll.hadjustment();
+    wait_for(
+        "tabs to overflow and the last tab to come into view",
+        || (adjustment.upper() > adjustment.page_size() && adjustment.value() > 0.0).then_some(()),
+    );
+    assert!(!scroll.hscrollbar().is_mapped());
+
+    activate(&window, "next-tab");
+    assert_eq!(state.borrow().active, Some(1));
+    let first = state.borrow().tabs[0].chip.clone();
+    wait_for("keyboard cycling to bring the first tab into view", || {
+        first
+            .compute_bounds(&viewport)
+            .and_then(|bounds| (bounds.x() >= -1.0).then_some(()))
+    });
+
+    open_settings(&state, "appearance");
+    wait_for("Settings tab to come into view", || {
+        let ui = state.borrow();
+        let chip = &ui.settings.as_ref().unwrap().chip;
+        chip.compute_bounds(&viewport).and_then(|bounds| {
+            (bounds.x() >= -1.0 && bounds.x() + bounds.width() <= viewport.width() as f32 + 1.0)
+                .then_some(())
+        })
+    });
+    assert!(!scroll.hscrollbar().is_mapped());
+    window.close();
+}

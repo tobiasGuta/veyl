@@ -186,7 +186,7 @@ fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<Re
     tabs_viewport.set_child(Some(&tabs_bar));
 
     let tabs_scroll = ScrolledWindow::new();
-    tabs_scroll.set_policy(PolicyType::Automatic, PolicyType::Never);
+    tabs_scroll.set_policy(PolicyType::External, PolicyType::Never);
     tabs_scroll.set_hexpand(false);
     tabs_scroll.set_min_content_width(100);
     tabs_scroll.set_max_content_width(640);
@@ -433,22 +433,7 @@ fn activate_settings(state: &Rc<RefCell<State>>) {
     chip.add_css_class("active");
     select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::True)]);
     select.grab_focus();
-    viewport.add_tick_callback(glib::clone!(
-        #[weak]
-        chip,
-        #[upgrade_or]
-        glib::ControlFlow::Break,
-        move |viewport, _| {
-            if !chip.has_css_class("active") {
-                return glib::ControlFlow::Break;
-            }
-            if chip.width() == 0 {
-                return glib::ControlFlow::Continue;
-            }
-            viewport.scroll_to(&chip, None);
-            glib::ControlFlow::Break
-        }
-    ));
+    reveal_tab(&viewport, &chip);
     panes::update_focus_actions(state);
 }
 
@@ -766,6 +751,33 @@ fn open_tab_with_launch(state: &Rc<RefCell<State>>, launch: panes::Launch) {
     tabs::refresh_title(state, id);
 }
 
+fn reveal_tab(viewport: &Viewport, chip: &GtkBox) {
+    viewport.add_tick_callback(glib::clone!(
+        #[weak]
+        chip,
+        #[upgrade_or]
+        glib::ControlFlow::Break,
+        move |viewport, _| {
+            if !chip.has_css_class("active") {
+                return glib::ControlFlow::Break;
+            }
+            // A newly added tab has no bounds until its first layout.
+            if chip.width() == 0 {
+                return glib::ControlFlow::Continue;
+            }
+            if let Some((bounds, adjustment)) = viewport
+                .child()
+                .and_then(|bar| chip.compute_bounds(&bar))
+                .zip(viewport.hadjustment())
+            {
+                let start = f64::from(bounds.x());
+                adjustment.clamp_page(start, start + f64::from(bounds.width()));
+            }
+            glib::ControlFlow::Break
+        }
+    ));
+}
+
 fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
     let (chip, select, surface, terminal, previous, stack, viewport) = {
         let mut ui = state.borrow_mut();
@@ -802,25 +814,7 @@ fn activate_tab(state: &Rc<RefCell<State>>, id: u64) {
     chip.add_css_class("active");
     select.update_state(&[AccessibleState::Pressed(gtk::AccessibleTristate::True)]);
 
-    let chip = chip.downgrade();
-    let weak_state = Rc::downgrade(state);
-    viewport.add_tick_callback(move |viewport, _| {
-        let Some(chip) = chip.upgrade() else {
-            return glib::ControlFlow::Break;
-        };
-        if !weak_state
-            .upgrade()
-            .is_some_and(|ui| ui.borrow().active == Some(id))
-        {
-            return glib::ControlFlow::Break;
-        }
-        // Newly appended tabs need their first layout before they have scroll bounds.
-        if chip.width() == 0 {
-            return glib::ControlFlow::Continue;
-        }
-        viewport.scroll_to(&chip, None);
-        glib::ControlFlow::Break
-    });
+    reveal_tab(&viewport, &chip);
     terminal.grab_focus();
     panes::update_focus_actions(state);
 }

@@ -1,5 +1,9 @@
 # Verification status
 
+## Tab overflow
+
+The GNOME Wayland test opened enough tabs to overflow the titlebar, verified the horizontal scrollbar was hidden, and checked that cycling to the first tab and opening Settings brought those tabs into view.
+
 ## Fedora preview candidate
 
 The candidate at `707c0de` passed formatting, locked unit tests, Clippy, and the optimized build on Fedora 45. The isolated GNOME Wayland suite passed 14 of 17 display cases, including clipboard actions, Vim, tmux, and repeated PTY lifecycle coverage. Search focus, directional split focus, and confirmed multiline paste each failed in that headless session. Each passed on three reruns on the signed-in GNOME desktop with fresh test settings. The appearance and window control tests also passed with Blur My Shell disabled, and the Wayland trace showed Mutter receiving the native blur region.
