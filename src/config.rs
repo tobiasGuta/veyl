@@ -84,6 +84,12 @@ impl Default for Config {
     }
 }
 
+#[derive(Debug)]
+pub struct ConfigLoadError {
+    pub path: Option<PathBuf>,
+    pub cause: io::Error,
+}
+
 impl Config {
     pub fn background_style(&self, blur_supported: bool) -> (f64, bool) {
         match (self.blur, blur_supported) {
@@ -116,30 +122,22 @@ impl Config {
         Some(root.join("veyl").join("config.toml"))
     }
 
-    pub fn load() -> Self {
-        let Some(path) = Self::path() else {
-            eprintln!("Veyl: no HOME or XDG_CONFIG_HOME; using defaults");
-            return Self::default();
+    pub fn load() -> Result<Self, ConfigLoadError> {
+        let path = Self::path().ok_or_else(|| ConfigLoadError {
+            path: None,
+            cause: io::Error::other("No HOME or XDG_CONFIG_HOME is set."),
+        })?;
+        let result = match fs::read_to_string(&path) {
+            Ok(contents) => toml::from_str::<Self>(&contents).map_err(io::Error::other),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(err) => Err(err),
         };
-        let mut config = match fs::read_to_string(&path) {
-            Ok(contents) => match toml::from_str::<Self>(&contents) {
-                Ok(value) => value,
-                Err(err) => {
-                    eprintln!("Veyl: invalid {}: {err}; using defaults", path.display());
-                    Self::default()
-                }
-            },
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Self::default(),
-            Err(err) => {
-                eprintln!(
-                    "Veyl: unable to read {}: {err}; using defaults",
-                    path.display()
-                );
-                Self::default()
-            }
-        };
+        let mut config = result.map_err(|cause| ConfigLoadError {
+            path: Some(path),
+            cause,
+        })?;
         config.normalize();
-        config
+        Ok(config)
     }
 
     pub fn save_changes(&self, previous: &Self) -> io::Result<()> {

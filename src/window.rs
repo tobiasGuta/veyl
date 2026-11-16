@@ -6,7 +6,7 @@ mod shortcuts;
 mod tabs;
 mod themes;
 
-use crate::config::{Config, CursorShape};
+use crate::config::{Config, ConfigLoadError, CursorShape};
 use gdk4_wayland::WaylandDisplay;
 use gtk::accessible::{Property, State as AccessibleState};
 use gtk::gdk;
@@ -74,9 +74,73 @@ struct State {
 }
 
 pub fn build(app: &Application) {
-    let (window, state) = create_window(app, Config::load());
+    let (config, error) = match Config::load() {
+        Ok(config) => (config, None),
+        Err(err) => (Config::default(), Some(err)),
+    };
+    let (window, state) = create_window(app, config);
     open_tab(&state);
     window.present();
+    if let Some(error) = error {
+        show_config_error(&window, error);
+    }
+}
+
+fn show_config_error(window: &ApplicationWindow, error: ConfigLoadError) {
+    let dialog = gtk::AlertDialog::builder()
+        .message("Could not load Veyl settings")
+        .modal(true)
+        .cancel_button(0)
+        .default_button(0);
+    let Some(path) = error.path else {
+        dialog
+            .detail(error.cause.to_string())
+            .build()
+            .show(Some(window));
+        return;
+    };
+    let detail = format!(
+        "Veyl is using defaults. Fix the configuration file and reopen Veyl.\n\n{}\n{}",
+        path.display(),
+        error.cause
+    );
+    dialog
+        .detail(detail)
+        .buttons(["Continue with defaults", "Open config file"])
+        .build()
+        .choose(
+            Some(window),
+            gio::Cancellable::NONE,
+            glib::clone!(
+                #[weak]
+                window,
+                move |response| {
+                    if !matches!(response, Ok(1)) {
+                        return;
+                    }
+                    let file = gio::File::for_path(&path);
+                    gtk::FileLauncher::new(Some(&file)).launch(
+                        Some(&window),
+                        gio::Cancellable::NONE,
+                        glib::clone!(
+                            #[weak]
+                            window,
+                            move |result| {
+                                if let Err(error) = result {
+                                    if !error.matches(gtk::DialogError::Dismissed) {
+                                        gtk::AlertDialog::builder()
+                                            .message("Could not open the configuration file")
+                                            .detail(error.to_string())
+                                            .build()
+                                            .show(Some(&window));
+                                    }
+                                }
+                            }
+                        ),
+                    );
+                }
+            ),
+        );
 }
 
 fn create_window(app: &Application, config: Config) -> (ApplicationWindow, Rc<RefCell<State>>) {
