@@ -15,7 +15,16 @@ fn checked_png(path: &Path) -> Result<gtk::gdk::Texture, String> {
     if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
         return Err("not a regular file, or PNG exceeds the 8 MiB test limit".into());
     }
-    let bytes = std::fs::read(path).map_err(|err| err.to_string())?;
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|err| err.to_string())?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| err.to_string())?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("PNG exceeds the 8 MiB test limit".into());
+    }
     let (width, height) =
         png_dimensions(&bytes).ok_or("not a bounded PNG with a valid IHDR")?;
     let data = gtk::glib::Bytes::from(&bytes);
