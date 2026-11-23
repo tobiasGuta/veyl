@@ -120,3 +120,10 @@ Development restrictions:
 - Do not install or merge the experimental feature in lieu of genuine Codex graphics support.
 
 CI now tests, formats, lints and builds both the default Veyl binary and its graphics-prototype feature. **CI is not a substitute for a physical Wayland visual test.**
+
+
+## Codex multi-chunk PNG transport tests
+
+The test-only module src/graphics_transfer.rs now models the Codex 0.171.0 PNG chunk stream more closely than the raw frame splitter. It validates the initial action and transport (a=T,t=d,f=100), preserves the image ID and requested cell dimensions, buffers continuation frames marked m=1, decodes after m=0, and rejects malformed or oversized transfers. The decoder has a compressed-size bound of 8 MiB, an encoded-size bound of 12 MiB, and a 16-million-pixel PNG IHDR bound. A complete PNG decoder still has to validate the full image data.
+
+This transfer assembler **is not connected to any PTY or live Codex process**. Deletion, placement, alternate-screen cursor mapping, and image lifecycle are still outstanding. It runs only under cargo test and cannot change normal terminal operation. Static GTK drawing and transfer assembly are separate milestones to connect after the PTY architecture is safe.
