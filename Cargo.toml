@@ -7,6 +7,9 @@ repository = "https://github.com/tobiasGuta/veyl"
 license = "MIT"
 publish = false
 
+[features]
+graphics-prototype = []
+
 [dependencies]
 libc = "0.2"
 gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
