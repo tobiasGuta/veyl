@@ -130,6 +130,8 @@ impl Pane {
         apply_terminal_settings(&terminal, &settings);
         let search = Search::new(&terminal);
         search.overlay.add_css_class("veyl-terminal-surface");
+        #[cfg(feature = "graphics-prototype")]
+        crate::graphics_preview::attach(&search.overlay);
         super::links::install(&terminal, state);
         Self {
             id,
