@@ -265,10 +265,7 @@ mod tests {
         assert!(splitter.push(b"234567\x1b").is_empty());
         assert_eq!(
             splitter.push(b"\\after"),
-            vec![
-                Event::RejectedOversize,
-                Event::Terminal(b"after".to_vec())
-            ]
+            vec![Event::RejectedOversize, Event::Terminal(b"after".to_vec())]
         );
     }
 
