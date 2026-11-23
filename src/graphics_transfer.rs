@@ -87,7 +87,7 @@ impl Assembler {
                 rows,
                 encoded: Vec::new(),
             });
-        } else if self.pending.is_none() || fields.keys().any(|key| !matches!(*key, &"m" | &"q")) {
+        } else if self.pending.is_none() || fields.keys().any(|key| *key != &"m" && *key != &"q") {
             return Err(Error::MissingStart);
         }
 
