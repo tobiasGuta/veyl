@@ -2,6 +2,8 @@ mod config;
 // Isolated protocol framing tests; no terminal graphics capability is enabled yet.
 #[cfg(test)]
 mod graphics;
+#[cfg(feature = "graphics-prototype")]
+mod graphics_preview;
 mod prompt;
 mod window;
 
