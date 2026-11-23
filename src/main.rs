@@ -10,7 +10,10 @@ mod window;
 use gtk::prelude::*;
 use gtk::{glib, Application};
 
+#[cfg(not(feature = "graphics-prototype"))]
 const APP_ID: &str = "io.github.tobiasGuta.Veyl";
+#[cfg(feature = "graphics-prototype")]
+const APP_ID: &str = "io.github.tobiasGuta.Veyl.GraphicsPrototype";
 
 fn main() -> glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
