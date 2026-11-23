@@ -52,7 +52,10 @@ impl Assembler {
     }
 
     fn accept_inner(&mut self, frame: &[u8]) -> Result<Option<PngTransfer>, Error> {
-        let semi = frame.iter().position(|byte| *byte == b';').ok_or(Error::Malformed)?;
+        let semi = frame
+            .iter()
+            .position(|byte| *byte == b';')
+            .ok_or(Error::Malformed)?;
         let params = std::str::from_utf8(&frame[..semi]).map_err(|_| Error::Malformed)?;
         let encoded = &frame[semi + 1..];
         let mut fields = BTreeMap::new();
@@ -95,7 +98,10 @@ impl Assembler {
         if pending.encoded.len().saturating_add(encoded.len()) > MAX_ENCODED {
             return Err(Error::Oversized);
         }
-        if !encoded.iter().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')) {
+        if !encoded
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+        {
             return Err(Error::Malformed);
         }
         pending.encoded.extend_from_slice(encoded);
@@ -107,7 +113,11 @@ impl Assembler {
         if encoded.is_empty() || encoded.len() % 4 != 0 {
             return Err(Error::Malformed);
         }
-        let padding = encoded.iter().rev().take_while(|byte| **byte == b'=').count();
+        let padding = encoded
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'=')
+            .count();
         if padding > 2 || encoded[..encoded.len() - padding].contains(&b'=') {
             return Err(Error::Malformed);
         }
@@ -132,11 +142,17 @@ impl Assembler {
 }
 
 fn parse_u32(value: Option<&&str>) -> Result<u32, Error> {
-    value.ok_or(Error::Malformed)?.parse().map_err(|_| Error::Malformed)
+    value
+        .ok_or(Error::Malformed)?
+        .parse()
+        .map_err(|_| Error::Malformed)
 }
 
 fn parse_u16(value: Option<&&str>) -> Result<u16, Error> {
-    value.ok_or(Error::Malformed)?.parse().map_err(|_| Error::Malformed)
+    value
+        .ok_or(Error::Malformed)?
+        .parse()
+        .map_err(|_| Error::Malformed)
 }
 
 /// Header-only bounding; GDK must validate the full PNG before rendering.
@@ -150,8 +166,10 @@ fn is_bounded_png(data: &[u8]) -> bool {
     }
     let width = u32::from_be_bytes(data[16..20].try_into().unwrap());
     let height = u32::from_be_bytes(data[20..24].try_into().unwrap());
-    width > 0 && height > 0
-        && width <= 16_384 && height <= 16_384
+    width > 0
+        && height > 0
+        && width <= 16_384
+        && height <= 16_384
         && u64::from(width) * u64::from(height) <= MAX_PIXELS
 }
 
@@ -176,9 +194,15 @@ mod tests {
         let second = format!("m=0;{}", &encoded[16..]);
         let mut decoder = Assembler::new();
         assert_eq!(decoder.accept(first.as_bytes()), Ok(None));
-        assert_eq!(decoder.accept(second.as_bytes()), Ok(Some(PngTransfer {
-            id: 7, columns: 4, rows: 3, data: png
-        })));
+        assert_eq!(
+            decoder.accept(second.as_bytes()),
+            Ok(Some(PngTransfer {
+                id: 7,
+                columns: 4,
+                rows: 3,
+                data: png
+            }))
+        );
     }
 
     #[test]
@@ -186,14 +210,24 @@ mod tests {
         let png = png_header();
         let encoded = gtk::glib::base64_encode(&png);
         let command = format!("a=T,t=d,f=100,c=2,r=2,i=3,m=0;{encoded}");
-        assert_eq!(Assembler::new().accept(command.as_bytes()).unwrap().unwrap().data, png);
+        assert_eq!(
+            Assembler::new()
+                .accept(command.as_bytes())
+                .unwrap()
+                .unwrap()
+                .data,
+            png
+        );
     }
 
     #[test]
     fn reject_bad_chunk_and_clear_pending() {
         let mut decoder = Assembler::new();
         assert_eq!(decoder.accept(b"m=0;AAAA"), Err(Error::MissingStart));
-        assert_eq!(decoder.accept(b"a=T,t=d,f=100,c=2,r=2,i=3,m=1;AAAA"), Ok(None));
+        assert_eq!(
+            decoder.accept(b"a=T,t=d,f=100,c=2,r=2,i=3,m=1;AAAA"),
+            Ok(None)
+        );
         assert_eq!(decoder.accept(b"m=0;not_base64!"), Err(Error::Malformed));
         assert_eq!(decoder.accept(b"m=0;AAAA"), Err(Error::MissingStart));
     }
@@ -201,14 +235,23 @@ mod tests {
     #[test]
     fn reject_unsupported_transfer_and_malformed_params() {
         let mut decoder = Assembler::new();
-        assert_eq!(decoder.accept(b"a=T,t=f,f=100,c=2,r=2,i=3;AAAA"), Err(Error::Unsupported));
-        assert_eq!(decoder.accept(b"a=T,a=T,t=d,f=100,c=2,r=2,i=3;AAAA"), Err(Error::Malformed));
+        assert_eq!(
+            decoder.accept(b"a=T,t=f,f=100,c=2,r=2,i=3;AAAA"),
+            Err(Error::Unsupported)
+        );
+        assert_eq!(
+            decoder.accept(b"a=T,a=T,t=d,f=100,c=2,r=2,i=3;AAAA"),
+            Err(Error::Malformed)
+        );
     }
 
     #[test]
     fn reject_oversized_payload() {
         let mut decoder = Assembler::new();
-        assert_eq!(decoder.accept(b"a=T,t=d,f=100,c=2,r=2,i=3,m=1;AAAA"), Ok(None));
+        assert_eq!(
+            decoder.accept(b"a=T,t=d,f=100,c=2,r=2,i=3,m=1;AAAA"),
+            Ok(None)
+        );
         let huge = format!("m=0;{}", "A".repeat(MAX_ENCODED + 1));
         assert_eq!(decoder.accept(huge.as_bytes()), Err(Error::Oversized));
     }
