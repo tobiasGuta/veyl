@@ -4,6 +4,8 @@ mod config;
 mod graphics;
 #[cfg(feature = "graphics-prototype")]
 mod graphics_preview;
+#[cfg(test)]
+mod graphics_transfer;
 mod prompt;
 mod window;
 
