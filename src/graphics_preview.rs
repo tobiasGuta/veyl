@@ -25,8 +25,7 @@ fn checked_png(path: &Path) -> Result<gtk::gdk::Texture, String> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("PNG exceeds the 8 MiB test limit".into());
     }
-    let (width, height) =
-        png_dimensions(&bytes).ok_or("not a bounded PNG with a valid IHDR")?;
+    let (width, height) = png_dimensions(&bytes).ok_or("not a bounded PNG with a valid IHDR")?;
     let data = gtk::glib::Bytes::from(&bytes);
     let texture = gtk::gdk::Texture::from_bytes(&data)
         .map_err(|err| format!("PNG could not be decoded: {err}"))?;
@@ -46,8 +45,10 @@ fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     }
     let width = u32::from_be_bytes(data.get(16..20)?.try_into().ok()?);
     let height = u32::from_be_bytes(data.get(20..24)?.try_into().ok()?);
-    if width == 0 || height == 0
-        || width > 16_384 || height > 16_384
+    if width == 0
+        || height == 0
+        || width > 16_384
+        || height > 16_384
         || u64::from(width) * u64::from(height) > MAX_PIXELS
     {
         return None;
