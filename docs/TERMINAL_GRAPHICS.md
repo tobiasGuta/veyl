@@ -94,3 +94,29 @@ Codex **0.171.0** source tag `rust-v0.171.0` implements the following in `codex-
 Tag source: https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/tui/src/pets/image_protocol.rs
 
 Next acceptance test input: a known PNG emitted as the exact above chunk series (with interleaved cursor moves and deletions), followed by a real Codex image preview inside a split pane. This is a **test target**, not a claim that the UI works.
+
+
+## Phase 2: opt-in GTK drawing proof of concept
+
+A GTK4 Picture is now attached to the existing pane-local Search overlay in an **experimental build only**, guarded by the cargo feature named graphics-prototype. This is a rendering fixture: it loads a local PNG chosen by the developer through VEYL_GRAPHICS_PREVIEW_FILE and draws it **inside the Veyl pane surface**. The picture is non-interactive, so mouse input passes through to VTE. The overlay belongs to the pane and disappears when the pane closes.
+
+The graphics-prototype build uses a distinct GTK application ID, so it does not interfere with the running installed Veyl application. It does not change the normal build.
+
+To perform a physical Wayland rendering test on Fedora 45, from a checked-out feature branch and with a PNG you control:
+
+~~~bash
+VEYL_GRAPHICS_PREVIEW_FILE="$HOME/Pictures/test.png" \
+  cargo run --locked --features graphics-prototype
+~~~
+
+Replace the file path with an existing PNG. The program must show the image over the terminal area in the new experimental Veyl window. Check that shell input still works when clicking through the preview, tabs and splits continue to work, and the image disappears when its pane closes. This is a *static position* prototype; it deliberately does not follow terminal cursor movement or scrollback.
+
+Development restrictions:
+
+- File read limit: 8 MiB, including a length cap on reading to handle concurrent file changes.
+- PNG IHDR dimension guard: max 16,384 per dimension and 16 million pixels; GDK still validates full encoded PNG data.
+- No network fetching, image file auto-discovery, or terminal-output-triggered file access.
+- The feature does not cause Codex to send image previews: PTY capture, Kitty transfer parsing integration, per-cell positioning, scrolling, image lifecycle, and terminal capability detection remain TODO.
+- Do not install or merge the experimental feature in lieu of genuine Codex graphics support.
+
+CI now tests, formats, lints and builds both the default Veyl binary and its graphics-prototype feature. **CI is not a substitute for a physical Wayland visual test.**
