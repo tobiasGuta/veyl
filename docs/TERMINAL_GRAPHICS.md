@@ -69,3 +69,28 @@ cargo build --locked
 Manual terminal graphics tests: **NOT RUN**. Full image support is **NOT IMPLEMENTED** in this branch.
 
 A future graphics implementation is only complete after Codex's original full-color PNG preview renders directly inside Veyl and the existing Fedora Wayland tests pass.
+
+
+## Confirmed user environment and exact Codex behavior (2026-11-22)
+
+User confirmed the following in Veyl, on Fedora 45:
+
+~~~text
+codex-cli 0.171.0
+vte291-gtk4-0.84.1-1.fc45.x86_64
+TERM=xterm-256color
+COLORTERM=truecolor
+~~~
+
+Codex **0.171.0** source tag `rust-v0.171.0` implements the following in `codex-rs/tui/src/pets/image_protocol.rs`:
+
+- Auto graphics detection uses known Kitty/WezTerm/Ghostty/Rex environments or SIXEL terminal identifiers; `TERM=xterm-256color` and `COLORTERM=truecolor` do not imply image support.
+- PNG inline data uses Kitty graphics APC actions `ESC _ G ... ESC backslash` with first command `a=T,t=d,f=100,c=<columns>,r=<rows>,q=2,i=<image_id>,m=<0-or-1>,C=1`; each base64 payload chunk is at most 4,096 bytes.
+- Continuation commands use `m=<0-or-1>` until the last chunk. Handling *one APC frame* is not the same as decoding *one complete PNG transfer*.
+- The delete command uses `a=d,d=I,i=<id>,q=2`; movement can delete placements with lowercase `d=i` then place again with `a=p,i=<id>,c=<columns>,r=<rows>,C=1,q=2`.
+- iTerm2 may get a Kitty local-file variant, but Veyl should prioritize byte-stream `t=d` with no file reads.
+- An explicit Codex image-protocol override may bypass automatic detection, **but must never be used for Veyl until rendering is real**. Misrepresenting image capabilities just exposes unrendered escape sequences.
+
+Tag source: https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/tui/src/pets/image_protocol.rs
+
+Next acceptance test input: a known PNG emitted as the exact above chunk series (with interleaved cursor moves and deletions), followed by a real Codex image preview inside a split pane. This is a **test target**, not a claim that the UI works.
